@@ -7,7 +7,7 @@ class ClauseReranker:
     Uses BAAI/bge-reranker-large.
     """
 
-    def __init__(self, model_name: str = "BAAI/bge-reranker-large"):
+    def __init__(self, model_name: str = "BAAI/bge-reranker-base"):
         print("Loading reranker model...")
         self.model = CrossEncoder(model_name, device="cpu")
 

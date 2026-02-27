@@ -75,6 +75,27 @@ All detected section titles are normalized:
 - Titles are converted to consistent Title Case.
 - The cleaned title is stored in metadata.
 
+### 2.2.2 Modular Validation Architecture
+
+The clause splitter uses modular helper functions to isolate structural responsibilities:
+
+- `_normalize_section()`  
+  Responsible for cleaning and standardizing detected section headings.
+
+- `_is_valid_heading()`  
+  Applies strict validation rules to candidate numbered headings before accepting them as structural clauses.
+
+- `_save_clause()`  
+  Handles clause persistence and bullet-aware splitting logic.
+
+Rationale:
+- Keeps the main splitter loop readable.
+- Makes structural rules testable in isolation.
+- Prevents deeply nested logic in the core iteration loop.
+- Encourages controlled future extensibility (e.g., hybrid splitting strategies).
+
+The architecture favors deterministic structural parsing over heuristic-heavy post-processing.
+
 ### 2.2.1 Strict Numbered Clause Pattern
 
 Numbered clause detection requires a trailing dot after the numeric hierarchy.
@@ -121,6 +142,34 @@ Each clause chunk includes:
 
 No token-based splitting at this stage.
 
+### 2.4.2 Bullet-Level Splitting (Current Implementation)
+
+The splitter performs bullet-aware splitting inside a clause when structural bullet patterns are detected.
+
+Currently supported bullet formats:
+
+- Symbol bullets: •
+- Hyphen bullets: -
+
+Detection pattern:
+- ^\s*[•\-]\s+
+
+If bullet patterns are detected within a clause:
+
+- Each bullet block becomes an independent retrievable chunk.
+- All lines from the bullet start until the next bullet are grouped together.
+- Each chunk inherits the parent clause metadata.
+- `chunk_type` is set to `"clause_bullet_level"`.
+
+If no bullet structure is detected:
+- The entire clause is stored as a single `"clause_level"` chunk.
+
+Design Notes:
+- Bullet splitting is deterministic and regex-driven.
+- Alphabetical bullets (a), b)) and roman bullets (i., ii.) are not yet structurally split.
+- No semantic merging of cross-bullet explanatory text is currently performed.
+- Splitting remains structurally safe and predictable.
+
 ### 2.4.1 Heading Quality Hardening
 
 In addition to structural numbering, clause headings must pass quality validation before being accepted.
@@ -162,6 +211,7 @@ For clause chunks:
 - clause_number
 - clause_title
 - start_page (page number where the clause begins, for traceability)
+
 
 ### 2.7 Alphabetical Subclause Handling Decision
 
@@ -252,6 +302,104 @@ Both are critical, but they serve different purposes specifically within the Ret
 
 ---
 
+### 3.2 Retriever Design Overview
+
+- Use hybrid retrieval combining semantic and lexical methods.
+- Semantic retrieval via dense embeddings (FAISS).
+- Lexical retrieval via BM25 keyword matching.
+- Candidate clauses from both are combined.
+- Cross-encoder reranking refines final results.
+- Structural deduplication ensures unique clause chunks.
+- Retrieval parameters tuned for recall and precision balance.
+
+---
+
+### 3.3 Retrieval Design Decisions
+
+- Hybrid retrieval improves recall over single-mode retrieval.
+- Cross-encoder reranker boosts precision by rescoring candidates.
+- Deduplication by clause_number and start_page prevents redundant chunks.
+- Avoids heuristic length filtering; relies on structural TOC filtering.
+- Uses deterministic regex patterns for clause detection.
+- Prefers structural metadata for traceability and debugging.
+- Retrieval tuning focuses on top-K recall and MRR metrics.
+           
+---
+
+### 3.4 Implementation Details of Hybrid Retrieval
+
+The `ClaimLensRetriever` class implements hybrid retrieval using the following components:
+
+#### 1. Dense Retrieval (FAISS)
+
+- Built using `build_or_load_vectorstore()`.
+- Uses embedding model (e.g., BAAI/bge-large-en-v1.5).
+- Retrieval executed via:
+  - `vectorstore.as_retriever(search_type="similarity", k=dense_top_k)`
+- Returns top `dense_top_k` semantically similar clauses.
+
+#### 2. BM25 Retrieval (Lexical)
+
+- Implemented using:
+  - `langchain_community.retrievers.BM25Retriever`
+- Initialized directly from `clause_documents`.
+- Configured with:
+  - `bm25_retriever.k = dense_top_k`
+- Returns top lexical keyword matches.
+
+#### 3. Hybrid Candidate Pool Construction
+
+The dense and BM25 results are concatenated:
+
+    hybrid_pool = dense_results + bm25_results
+
+Because overlap is common, structural deduplication is applied.
+
+Deduplication key:
+- `clause_number`
+- `start_page`
+
+This ensures:
+- No duplicate structural clauses enter reranking.
+- Bullet-level and clause-level chunks remain uniquely identified.
+- Structural traceability is preserved.
+
+#### 4. Cross-Encoder Reranking
+
+- Implemented via `ClauseReranker`.
+- Uses cross-encoder model:
+  - `BAAI/bge-reranker-base`
+- Scores (query, clause) pairs directly.
+- Returns top `rerank_top_k` highest-scoring clauses.
+
+Final output:
+- High recall candidate generation.
+- High precision ranking refinement.
+
+---
+
+### 3.5 Architectural Rationale
+
+Why simple concatenation instead of weighted hybrid merging?
+
+Current design uses:
+- Concatenation
+- Structural deduplication
+- Cross-encoder reranking
+
+This is intentional because:
+
+- Reranker learns optimal weighting implicitly.
+- Score normalization across retrieval modes is avoided.
+- Simplicity improves reproducibility.
+- Retrieval behavior remains deterministic and interpretable.
+
+Weighted hybrid scoring may be introduced in future iterations if evaluation metrics indicate recall imbalance.
+
+For the current ClaimLens stage, simple hybrid + reranker is sufficient and production-aligned.
+
+---
+
 ## 4. Guiding Principles
 
 - Preserve legal meaning.
@@ -260,6 +408,116 @@ Both are critical, but they serve different purposes specifically within the Ret
 - Keep metadata clean and intentional.
 - Avoid structural noise (e.g., Table of Contents pollution) before embedding.
 - Prevent structural false positives at detection stage rather than filtering them after chunk creation.
+- Prefer multi-granularity chunking (clause-level + bullet-level + long-split fallback).
+- Increase semantic precision before attempting retrieval-stage tuning.
+- Solve structural problems at ingestion time rather than compensating during reranking.
+
+---
+
+## 5. Evaluation Framework (retrieval_evaluator.py)
+
+### 5.1 Purpose
+
+Evaluation in ClaimLens focuses specifically on **retrieval quality**, not generation quality.
+
+The objective is to measure how effectively the retriever surfaces the correct legal clauses before they are passed to the LLM.
+
+Evaluation is performed after:
+1. Ingestion
+2. Clause-aware splitting
+3. Hybrid retrieval (Dense + BM25 + Reranker)
+
+This ensures structural and retrieval performance can be assessed independently of LLM reasoning.
+
+---
+
+### 5.2 Metrics Implemented
+
+The `RetrievalEvaluator` class computes the following retrieval metrics:
+
+- Recall@K
+- Mean Reciprocal Rank (MRR)
+
+These metrics are standard in information retrieval systems and legal search architectures.
+
+---
+
+### 5.3 Recall@K
+
+Recall@K measures whether at least one relevant clause appears within the top K retrieved results.
+
+Definition:
+> Did the system retrieve a correct clause within the first K results?
+
+For each query:
+- If any relevant clause number appears in the top K → score = 1
+- Otherwise → score = 0
+
+We currently compute:
+
+- Recall@5
+- Recall@20
+
+Interpretation:
+
+- **Recall@5** evaluates ranking strength (high precision zone).
+- **Recall@20** evaluates recall capacity (candidate coverage zone).
+
+Diagnostic insight:
+- High Recall@20 but low Recall@5 → Retrieval is finding relevant clauses, but ranking needs improvement.
+- Low Recall@20 → Hybrid retrieval configuration or structural chunking needs refinement.
+
+The current implementation assumes one primary relevant clause per query and uses binary recall (0 or 1).
+
+---
+
+### 5.4 Mean Reciprocal Rank (MRR)
+
+MRR measures how early the first correct result appears in the ranked output.
+
+For each query:
+
+If the first relevant clause appears at rank R:
+
+MRR contribution = 1 / R
+
+Examples:
+- Rank 1 → 1.0
+- Rank 2 → 0.5
+- Rank 5 → 0.2
+- Not retrieved → 0
+
+MRR rewards early ranking and is particularly important for legal clause retrieval where users rely heavily on top results.
+
+---
+
+### 5.5 Evaluation Loop
+
+The `evaluate()` method:
+
+1. Iterates over structured test queries.
+2. Calls the retriever for each query.
+3. Computes Recall@5, Recall@20, and MRR.
+4. Returns averaged metrics across all queries.
+
+Returned output format:
+
+{
+    "Recall@5": float,
+    "Recall@20": float,
+    "MRR": float
+}
+
+---
+
+### 5.6 Design Philosophy
+
+- Evaluation is clause-number based, not text-similarity based.
+- Structural correctness is validated before semantic evaluation.
+- Metrics isolate retrieval quality independent of LLM reasoning.
+- Failures act as diagnostic signals for improving chunking, hybrid retrieval weighting, or reranking.
+
+ClaimLens treats retrieval as a measurable engineering subsystem rather than a black-box embedding lookup.
 
 ---
 

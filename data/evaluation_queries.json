@@ -1,0 +1,66 @@
+[
+  {
+    "query": "What is the waiting period for pre-existing diseases?",
+    "relevant_clause_numbers": ["7.1.1"]
+  },
+  {
+    "query": "What is the moratorium period?",
+    "relevant_clause_numbers": ["12."]
+  },
+  {
+    "query": "What is the free look period?",
+    "relevant_clause_numbers": ["8.1.1"]
+  },
+  {
+    "query": "What is the waiting period for pre-existing diseases?",
+    "relevant_clause_numbers": ["7.1.1"]
+  },
+  {
+    "query": "What is the moratorium period?",
+    "relevant_clause_numbers": ["12.", "8.1.10."]
+  },
+  {
+    "query": "What is the free look period?",
+    "relevant_clause_numbers": ["8.1.1"]
+  },
+  {
+    "query": "What is the 30-day waiting period?",
+    "relevant_clause_numbers": ["7.1.3.", "4."]
+  },
+  {
+    "query": "What is the waiting period for specified diseases?",
+    "relevant_clause_numbers": ["2.", "Code-Excl02"]
+  },
+  {
+    "query": "What is portability in this policy?",
+    "relevant_clause_numbers": ["2.1.33."]
+  },
+  {
+    "query": "What is migration in this policy?",
+    "relevant_clause_numbers": ["2.1.25.", "8.1.12."]
+  },
+  {
+    "query": "What is the grace period for premium payment?",
+    "relevant_clause_numbers": ["2.1.12."]
+  },
+  {
+    "query": "What are day care procedures covered under this policy?",
+    "relevant_clause_numbers": ["2."]
+  },
+  {
+    "query": "What is covered under pre-hospitalization medical expenses?",
+    "relevant_clause_numbers": ["4."]
+  },
+  {
+    "query": "What is the definition of pre-existing disease?",
+    "relevant_clause_numbers": ["2.1.30."]
+  },
+  {
+    "query": "What are the conditions for renewal of the policy?",
+    "relevant_clause_numbers": ["2.1.35."]
+  },
+  {
+    "query": "What is the waiting period for cataract treatment?",
+    "relevant_clause_numbers": ["2."]
+  }
+]
