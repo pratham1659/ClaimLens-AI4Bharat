@@ -125,6 +125,7 @@ pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.1
 PyYAML==6.0.3
+rank-bm25==0.2.2
 referencing==0.37.0
 regex==2026.2.19
 requests==2.32.5
