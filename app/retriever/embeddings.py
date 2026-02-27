@@ -25,7 +25,7 @@ def _get_device() -> str:
     return "cpu"
 
 
-def load_embedding_model(model_size: str = "small") -> HuggingFaceEmbeddings:
+def load_embedding_model(model_size: str = "base") -> HuggingFaceEmbeddings:
     """
     Loads a BGE embedding model for dense retrieval.
 
