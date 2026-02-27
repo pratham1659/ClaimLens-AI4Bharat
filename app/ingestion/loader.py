@@ -5,7 +5,7 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_core.documents import Document
 
 
-def load_policy(
+def load_policy_documents(
     pdf_path: str,
     insurer: str,
     policy_name: str,

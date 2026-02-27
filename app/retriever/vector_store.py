@@ -5,7 +5,7 @@ from langchain_community.vectorstores import FAISS
 def build_or_load_vectorstore(
     clause_documents,
     embedding_model,
-    index_path: str = "faiss_claimlens_index"
+    index_path: str
 ):
     """
     Builds FAISS vector store if it does not exist.
