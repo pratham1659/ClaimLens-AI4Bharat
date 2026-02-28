@@ -1,6 +1,6 @@
 from langchain_community.retrievers import BM25Retriever
-from app.retriever.vector_store import build_or_load_vectorstore
-from app.retriever.reranker import ClauseReranker
+from app.retrieval.vector_store import build_or_load_vectorstore
+from app.retrieval.reranker import ClauseReranker
 
 class ClaimLensRetriever:
     """

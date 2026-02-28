@@ -1,9 +1,9 @@
-from app.ingestion.loader import load_policy
+from app.ingestion.loader import load_policy_documents
 from app.ingestion.clause_splitter import clause_based_splitter
 
 if __name__ == "__main__":
 
-    docs = load_policy(
+    docs = load_policy_documents(
         pdf_path="data/icici_complete_health.pdf",
         insurer="ICICI Lombard",
         policy_name="Complete Health Insurance",
