@@ -27,6 +27,7 @@ filetype==1.2.0
 flatbuffers==25.12.19
 frozenlist==1.8.0
 fsspec==2026.2.0
+fastapi==0.116.1
 google-ai-generativelanguage==0.6.15
 google-api-core==2.30.0
 google-api-python-client==2.190.0
@@ -119,6 +120,8 @@ PyMuPDF==1.27.1
 pyparsing==3.3.2
 pypdf==6.7.3
 pypdfium2==5.5.0
+python-multipart==0.0.20
+PyMySQL==1.1.2
 PyPika==0.51.1
 pyproject_hooks==1.2.0
 pytesseract==0.3.13
@@ -132,6 +135,7 @@ requests==2.32.5
 requests-oauthlib==2.0.0
 requests-toolbelt==1.0.0
 rich==14.3.3
+rq==2.7.0
 rpds-py==0.30.0
 rsa==4.9.1
 s3transfer==0.16.0
@@ -168,3 +172,4 @@ xxhash==3.6.0
 yarl==1.22.0
 zipp==3.23.0
 zstandard==0.25.0
+redis==7.2.1
