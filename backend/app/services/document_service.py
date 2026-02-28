@@ -1,0 +1,286 @@
+# backend/app/services/document_service.py
+"""
+Document service for file handling and processing.
+"""
+
+import logging
+from typing import Optional, List
+from uuid import UUID
+import boto3
+from botocore.exceptions import ClientError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.models.document import Document, DocumentType, DocumentStatus
+from app.models.claim import Claim
+from app.core.config import settings
+from app.core.exceptions import (
+    ResourceNotFoundError,
+    DocumentProcessingError,
+    ValidationError
+)
+from app.ingestion.pdf_parser import PDFParser
+from app.ingestion.ocr_processor import OCRProcessor
+from app.ingestion.medical_extractor import MedicalExtractor
+from backend.app.ingestion.clause_split import ClauseSplitter
+from app.rag.embeddings import EmbeddingService
+from app.rag.vector_store import VectorStore
+
+logger = logging.getLogger(__name__)
+
+
+class DocumentService:
+    """
+    Service for document upload, storage, and processing.
+    """
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.s3_client = boto3.client(
+            "s3",
+            region_name=settings.AWS_REGION,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        )
+        self.pdf_parser = PDFParser()
+        self.ocr_processor = OCRProcessor()
+        self.medical_extractor = MedicalExtractor()
+        self.clause_splitter = ClauseSplitter()
+        self.embedding_service = EmbeddingService()
+
+    async def generate_upload_url(
+        self,
+        claim_id: UUID,
+        document_type: DocumentType,
+        filename: str,
+        content_type: str,
+        file_size: int
+    ) -> tuple[Document, str]:
+        """
+        Generate presigned URL for document upload.
+
+        Args:
+            claim_id: Claim ID
+            document_type: Type of document
+            filename: Original filename
+            content_type: MIME type
+            file_size: File size in bytes
+
+        Returns:
+            Tuple of (document record, presigned URL)
+        """
+        # Validate file size
+        max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+        if file_size > max_size:
+            raise ValidationError(
+                f"File size exceeds maximum of {settings.MAX_UPLOAD_SIZE_MB}MB"
+            )
+
+        # Generate S3 key
+        s3_key = f"claims/{claim_id}/{document_type.value}/{filename}"
+
+        # Create document record
+        document = Document(
+            claim_id=claim_id,
+            document_type=document_type,
+            filename=filename,
+            s3_key=s3_key,
+            file_size=file_size,
+            content_type=content_type,
+            status=DocumentStatus.UPLOADED
+        )
+
+        self.db.add(document)
+        await self.db.flush()
+
+        # Generate presigned URL
+        try:
+            presigned_url = self.s3_client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": settings.S3_BUCKET_NAME,
+                    "Key": s3_key,
+                    "ContentType": content_type
+                },
+                ExpiresIn=settings.S3_PRESIGNED_URL_EXPIRY
+            )
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned URL: {str(e)}")
+            raise DocumentProcessingError("Failed to generate upload URL")
+
+        logger.info(f"Generated upload URL for document {document.id}")
+        return document, presigned_url
+
+    async def process_document(self, document_id: UUID) -> Document:
+        """
+        Process an uploaded document.
+
+        Args:
+            document_id: Document ID
+
+        Returns:
+            Processed document
+        """
+        document = await self.get_document(document_id)
+
+        if document.status != DocumentStatus.UPLOADED:
+            raise ValidationError(
+                f"Document is in {document.status.value} state")
+
+        document.status = DocumentStatus.PROCESSING
+        await self.db.flush()
+
+        try:
+            # Download document from S3
+            content = await self._download_from_s3(document.s3_key)
+        # backend/app/services/document_service.py (continued)
+
+            # Extract text based on document type
+            if document.content_type == "application/pdf":
+                extracted_text = await self.pdf_parser.extract_text(content)
+
+                # If PDF is image-based, use OCR
+                if not extracted_text or len(extracted_text.strip()) < 100:
+                    logger.info(f"Using OCR for document {document_id}")
+                    extracted_text = await self.ocr_processor.process_document(content)
+
+            elif document.content_type == "application/json":
+                extracted_text = content.decode("utf-8")
+
+            else:
+                raise DocumentProcessingError(
+                    f"Unsupported content type: {document.content_type}"
+                )
+
+            document.extracted_text = extracted_text
+
+            # Process based on document type
+            if document.document_type == DocumentType.INSURANCE_POLICY:
+                await self._process_policy_document(document, extracted_text)
+
+            document.status = DocumentStatus.PROCESSED
+            await self.db.flush()
+
+            logger.info(f"Successfully processed document {document_id}")
+            return document
+
+        except Exception as e:
+            logger.error(f"Document processing failed: {str(e)}")
+            document.status = DocumentStatus.FAILED
+            await self.db.flush()
+            raise DocumentProcessingError(f"Processing failed: {str(e)}")
+
+    async def _process_policy_document(
+        self,
+        document: Document,
+        text: str
+    ) -> None:
+        """
+        Process insurance policy document - split into clauses and generate embeddings.
+        """
+        # Split into clauses
+        clauses = await self.clause_splitter.split_document(
+            text=text,
+            document_id=str(document.id)
+        )
+
+        if not clauses:
+            logger.warning(f"No clauses extracted from document {document.id}")
+            return
+
+        # Generate embeddings for each clause
+        clause_texts = [clause.content for clause in clauses]
+        embeddings = await self.embedding_service.generate_embeddings_batch(
+            texts=clause_texts,
+            batch_size=10
+        )
+
+        # Store embeddings
+        vector_store = VectorStore(self.db)
+        await vector_store.store_embeddings(
+            document_id=document.id,
+            chunks=clause_texts,
+            embeddings=embeddings
+        )
+
+        logger.info(
+            f"Stored {len(embeddings)} embeddings for policy document {document.id}")
+
+    async def get_document(self, document_id: UUID) -> Document:
+        """Get document by ID."""
+        result = await self.db.execute(
+            select(Document).where(Document.id == document_id)
+        )
+        document = result.scalar_one_or_none()
+
+        if not document:
+            raise ResourceNotFoundError("Document", document_id)
+
+        return document
+
+    async def get_claim_documents(
+        self,
+        claim_id: UUID,
+        document_type: Optional[DocumentType] = None
+    ) -> List[Document]:
+        """Get all documents for a claim."""
+        query = select(Document).where(Document.claim_id == claim_id)
+
+        if document_type:
+            query = query.where(Document.document_type == document_type)
+
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def generate_download_url(self, document_id: UUID) -> str:
+        """Generate presigned URL for document download."""
+        document = await self.get_document(document_id)
+
+        try:
+            presigned_url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": settings.S3_BUCKET_NAME,
+                    "Key": document.s3_key
+                },
+                ExpiresIn=settings.S3_PRESIGNED_URL_EXPIRY
+            )
+            return presigned_url
+        except ClientError as e:
+            logger.error(f"Failed to generate download URL: {str(e)}")
+            raise DocumentProcessingError("Failed to generate download URL")
+
+    async def _download_from_s3(self, s3_key: str) -> bytes:
+        """Download file from S3."""
+        try:
+            response = self.s3_client.get_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key=s3_key
+            )
+            return response["Body"].read()
+        except ClientError as e:
+            logger.error(f"S3 download failed: {str(e)}")
+            raise DocumentProcessingError(f"Failed to download file: {str(e)}")
+
+    async def delete_document(self, document_id: UUID) -> None:
+        """Delete document and its S3 object."""
+        document = await self.get_document(document_id)
+
+        # Delete from S3
+        try:
+            self.s3_client.delete_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key=document.s3_key
+            )
+        except ClientError as e:
+            logger.warning(f"Failed to delete S3 object: {str(e)}")
+
+        # Delete embeddings
+        vector_store = VectorStore(self.db)
+        await vector_store.delete_document_embeddings(document_id)
+
+        # Delete document record
+        await self.db.delete(document)
+        await self.db.flush()
+
+        logger.info(f"Deleted document {document_id}")

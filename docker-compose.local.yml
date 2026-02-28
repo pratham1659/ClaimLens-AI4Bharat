@@ -1,0 +1,112 @@
+# docker-compose.local.yml
+# Local Development Configuration with LocalStack and Mock LLM
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.local.yml up -d
+
+services:
+  # PostgreSQL Database with pgvector - Local Development
+  db:
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: claimlens
+    volumes:
+      - postgres_data_local:/var/lib/postgresql/data
+      - ./backend/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # Redis - Local Development
+  redis:
+    command: redis-server --appendonly yes
+
+  # LocalStack for local AWS S3 emulation - Override to remove profiles
+  localstack:
+    image: localstack/localstack:latest
+    container_name: claimlens-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - PERSISTENCE=1
+    volumes:
+      - localstack_data_local:/var/lib/localstack
+      - ./backend/scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - claimlens-network
+
+  # Backend API - Local Development with Mock LLM
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: claimlens-backend
+    env_file:
+      - .env.local
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/claimlens
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - USE_LOCALSTACK=true
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - USE_MOCK_LLM=true
+      - BEDROCK_ENABLED=false
+    volumes:
+      - ./backend:/app
+      - ./backend/logs:/app/logs
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+
+  # Frontend - Local Development with hot-reload (Create React App)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: claimlens-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api/v1
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - WDS_SOCKET_PORT=0
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    command: npm start
+
+  # Optional: Ollama for local LLM (uncomment to use)
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: claimlens-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - claimlens-network
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - capabilities: [gpu]
+
+volumes:
+  postgres_data_local:
+  localstack_data_local:
+  # ollama_data:

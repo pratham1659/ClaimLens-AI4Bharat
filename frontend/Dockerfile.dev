@@ -1,0 +1,28 @@
+# ClaimLens Frontend Development Dockerfile
+# Create React App with hot-reload
+
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Environment variables for development
+ENV REACT_APP_API_URL=http://localhost:8000/api/v1
+ENV CHOKIDAR_USEPOLLING=true
+ENV WATCHPACK_POLLING=true
+ENV WDS_SOCKET_PORT=0
+
+# Expose port 3000 for CRA development server
+EXPOSE 3000
+
+# Start development server with hot-reload
+CMD ["npm", "start"]
