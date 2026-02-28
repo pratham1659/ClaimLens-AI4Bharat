@@ -4,30 +4,32 @@ from app.retriever.reranker import ClauseReranker
 
 class ClaimLensRetriever:
     """
-    Hybrid retrieval system:
+    Hybrid Retrieval System (Evaluation-Ready)
 
-    Stage 1: Candidate Generation (High Recall)
-        1. Dense retrieval using FAISS (semantic similarity)
-        2. BM25 retrieval (lexical keyword matching)
+    Stage 1: Candidate Generation
+        - Dense retrieval (FAISS)
+        - BM25 retrieval
+        - Merge + Deduplicate
 
-    Stage 2: Cross-Encoder Reranking (High Precision)
-        - BAAI/bge-reranker-base scores query-clause pairs
-        - Top-K most relevant clauses are returned
+    Stage 2 (Optional):
+        - Cross-Encoder Reranking
 
-    This design combines semantic similarity, exact keyword matching,
-    and intelligent reranking to improve both recall and precision.
+    IMPORTANT:
+        - No truncation happens inside retriever.
+        - Evaluator decides Recall@K.
+        - Can return all intermediate stages.
     """
 
     def __init__(
-            self,
-            clause_documents,
-            embedding_model,
-            index_path: str,
-            dense_top_k: int = 20,
-            rerank_top_k: int = 5
+        self,
+        clause_documents,
+        embedding_model,
+        index_path: str,
+        dense_top_k: int = 20,
+        use_reranker: bool = False
     ):
         self.dense_top_k = dense_top_k
-        self.rerank_top_k = rerank_top_k
+        self.use_reranker = use_reranker
 
         self.vectorstore = build_or_load_vectorstore(
             clause_documents,
@@ -40,14 +42,19 @@ class ClaimLensRetriever:
         )
         self.bm25_retriever.k = dense_top_k
 
-        self.reranker = ClauseReranker()
+        if self.use_reranker:
+            self.reranker = ClauseReranker()
+        else:
+            self.reranker = None
 
-    def retrieve(self, query: str):
+    def retrieve(self, query: str, return_stages: bool = False):
         """
-        Retrieve top relevant clauses for a given query.
+        Retrieve ranked clauses.
 
-        Returns:
-            List[Document]
+        If return_stages=True:
+            returns dict with dense, bm25, hybrid, final stages.
+        Otherwise:
+            returns final ranking only.
         """
 
         dense_retriever = self.vectorstore.as_retriever(
@@ -64,18 +71,26 @@ class ClaimLensRetriever:
         unique_hybrid_clauses = []
 
         for doc in hybrid_pool:
-            key = (
-                doc.metadata.get("clause_number"),
-                doc.metadata.get("start_page"),
-            )
-            if key not in seen:
-                seen.add(key)
+            clause_id = doc.metadata.get("clause_id")
+            if clause_id not in seen:
+                seen.add(clause_id)
                 unique_hybrid_clauses.append(doc)
 
-        final_clauses = self.reranker.rerank(
-            query=query,
-            candidate_clauses=unique_hybrid_clauses,
-            top_k=self.rerank_top_k
-        )
+        if self.use_reranker:
+            final_ranking = self.reranker.rerank(
+                query=query,
+                candidate_clauses=unique_hybrid_clauses,
+                top_k=len(unique_hybrid_clauses)  # full ranking
+            )
+        else:
+            final_ranking = unique_hybrid_clauses
 
-        return final_clauses
+        if return_stages:
+            return {
+                "dense": dense_results,
+                "bm25": bm25_results,
+                "hybrid": unique_hybrid_clauses,
+                "final": final_ranking
+            }
+
+        return final_ranking

@@ -1,66 +1,92 @@
 [
   {
-    "query": "What is the waiting period for pre-existing diseases?",
-    "relevant_clause_numbers": ["7.1.1"]
+    "query": "What expenses are covered under Inpatient Treatment?",
+    "relevant_clause_ids": [
+      "ICICILombard_p13_1_1"
+    ]
   },
   {
-    "query": "What is the moratorium period?",
-    "relevant_clause_numbers": ["12."]
+    "query": "What are the conditions for Day Care Procedures?",
+    "relevant_clause_ids": [
+      "ICICILombard_p13_2_1"
+    ]
   },
   {
-    "query": "What is the free look period?",
-    "relevant_clause_numbers": ["8.1.1"]
+    "query": "What is covered under Pre-Hospitalisation Medical Expenses?",
+    "relevant_clause_ids": [
+      "ICICILombard_p14_4_1"
+    ]
   },
   {
-    "query": "What is the waiting period for pre-existing diseases?",
-    "relevant_clause_numbers": ["7.1.1"]
+    "query": "What is covered under Post-Hospitalization Medical Expenses?",
+    "relevant_clause_ids": [
+      "ICICILombard_p14_5_1"
+    ]
   },
   {
-    "query": "What is the moratorium period?",
-    "relevant_clause_numbers": ["12.", "8.1.10."]
+    "query": "What is the Reset Benefit and when is it applicable?",
+    "relevant_clause_ids": [
+      "ICICILombard_p15_7_1"
+    ]
   },
   {
-    "query": "What is the free look period?",
-    "relevant_clause_numbers": ["8.1.1"]
+    "query": "What are the conditions for Domestic Road Ambulance coverage?",
+    "relevant_clause_ids": [
+      "ICICILombard_p15_8_1"
+    ]
   },
   {
-    "query": "What is the 30-day waiting period?",
-    "relevant_clause_numbers": ["7.1.3.", "4."]
+    "query": "What are the conditions for Air Ambulance Cover?",
+    "relevant_clause_ids": [
+      "ICICILombard_p16_9_1"
+    ]
   },
   {
-    "query": "What is the waiting period for specified diseases?",
-    "relevant_clause_numbers": ["2.", "Code-Excl02"]
+    "query": "What expenses are covered under Donor Expenses?",
+    "relevant_clause_ids": [
+      "ICICILombard_p16_9_1"
+    ]
   },
   {
-    "query": "What is portability in this policy?",
-    "relevant_clause_numbers": ["2.1.33."]
+    "query": "What are the exclusions under Domiciliary Hospitalization?",
+    "relevant_clause_ids": [
+      "ICICILombard_p16_9_1"
+    ]
   },
   {
-    "query": "What is migration in this policy?",
-    "relevant_clause_numbers": ["2.1.25.", "8.1.12."]
+    "query": "What are the limits and conditions for Home Care Treatment?",
+    "relevant_clause_ids": [
+      "ICICILombard_p16_9_1"
+    ]
   },
   {
-    "query": "What is the grace period for premium payment?",
-    "relevant_clause_numbers": ["2.1.12."]
+    "query": "How can wellness points be earned under the Wellness Program?",
+    "relevant_clause_ids": [
+      "ICICILombard_p15_8_1"
+    ]
   },
   {
-    "query": "What are day care procedures covered under this policy?",
-    "relevant_clause_numbers": ["2."]
+    "query": "What are the conditions for redeeming wellness points?",
+    "relevant_clause_ids": [
+      "ICICILombard_p20_2_1"
+    ]
   },
   {
-    "query": "What is covered under pre-hospitalization medical expenses?",
-    "relevant_clause_numbers": ["4."]
+    "query": "What are the conditions for Loyalty Bonus?",
+    "relevant_clause_ids": [
+      "ICICILombard_p24_14_1"
+    ]
   },
   {
-    "query": "What is the definition of pre-existing disease?",
-    "relevant_clause_numbers": ["2.1.30."]
+    "query": "What are the conditions for Hospital Daily Cash under Optional Covers?",
+    "relevant_clause_ids": [
+      "ICICILombard_p27_1_1"
+    ]
   },
   {
-    "query": "What are the conditions for renewal of the policy?",
-    "relevant_clause_numbers": ["2.1.35."]
-  },
-  {
-    "query": "What is the waiting period for cataract treatment?",
-    "relevant_clause_numbers": ["2."]
+    "query": "What is the Convalescence Benefit under Optional Covers?",
+    "relevant_clause_ids": [
+      "ICICILombard_p27_2_1"
+    ]
   }
 ]

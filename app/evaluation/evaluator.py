@@ -4,21 +4,28 @@ from langchain_core.documents import Document
 
 class RetrievalEvaluator:
     """
-    Computes retrieval metrics:
-    - Recall@K
-    - MRR
+    Stage-aware retrieval evaluation.
+
+    Computes:
+        - Dense Recall@20
+        - Hybrid Recall@20
+        - Final Recall@5
+        - Final MRR
+
+    Uses canonical clause_id.
     """
 
     @staticmethod
     def recall_at_k(
         retrieved_docs: List[Document],
-        relevant_clause_numbers: List[str],
+        relevant_clause_ids: List[str],
         k: int
     ) -> float:
-        top_k = retrieved_docs[:k]
 
-        for doc in top_k:
-            if doc.metadata.get("clause_number") in relevant_clause_numbers:
+        relevant_set = set(relevant_clause_ids)
+
+        for doc in retrieved_docs[:k]:
+            if doc.metadata.get("clause_id") in relevant_set:
                 return 1.0
 
         return 0.0
@@ -26,11 +33,15 @@ class RetrievalEvaluator:
     @staticmethod
     def reciprocal_rank(
         retrieved_docs: List[Document],
-        relevant_clause_numbers: List[str]
+        relevant_clause_ids: List[str]
     ) -> float:
+
+        relevant_set = set(relevant_clause_ids)
+
         for rank, doc in enumerate(retrieved_docs, start=1):
-            if doc.metadata.get("clause_number") in relevant_clause_numbers:
+            if doc.metadata.get("clause_id") in relevant_set:
                 return 1.0 / rank
+
         return 0.0
 
     def evaluate(
@@ -38,24 +49,43 @@ class RetrievalEvaluator:
         retriever,
         test_queries: List[Dict]
     ):
-        total_recall_5 = 0
-        total_recall_20 = 0
-        total_mrr = 0
+
+        dense_recall_20 = 0
+        hybrid_recall_20 = 0
+        final_recall_5 = 0
+        final_mrr = 0
 
         for test in test_queries:
             query = test["query"]
-            relevant = test["relevant_clause_numbers"]
+            relevant_ids = test.get("relevant_clause_ids", [])
 
-            retrieved_docs = retriever.retrieve(query)
+            stages = retriever.retrieve(query, return_stages=True)
 
-            total_recall_5 += self.recall_at_k(retrieved_docs, relevant, 5)
-            total_recall_20 += self.recall_at_k(retrieved_docs, relevant, 20)
-            total_mrr += self.reciprocal_rank(retrieved_docs, relevant)
+            dense_docs = stages["dense"]
+            hybrid_docs = stages["hybrid"]
+            final_docs = stages["final"]
+
+            dense_recall_20 += self.recall_at_k(
+                dense_docs, relevant_ids, 20
+            )
+
+            hybrid_recall_20 += self.recall_at_k(
+                hybrid_docs, relevant_ids, 20
+            )
+
+            final_recall_5 += self.recall_at_k(
+                final_docs, relevant_ids, 5
+            )
+
+            final_mrr += self.reciprocal_rank(
+                final_docs, relevant_ids
+            )
 
         n = len(test_queries)
 
         return {
-            "Recall@5": total_recall_5 / n,
-            "Recall@20": total_recall_20 / n,
-            "MRR": total_mrr / n,
+            "Dense Recall@20": dense_recall_20 / n,
+            "Hybrid Recall@20": hybrid_recall_20 / n,
+            "Final Recall@5": final_recall_5 / n,
+            "Final MRR": final_mrr / n,
         }

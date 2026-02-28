@@ -6,33 +6,40 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from app.ingestion.loader import load_policy_documents
 from app.ingestion.clause_splitter import clause_based_splitter
 from app.retriever.embeddings import load_embedding_model
-from app.retriever.vector_store import build_or_load_vectorstore
-from app.retriever.reranker import ClauseReranker
-
+from app.retriever.retriever import ClaimLensRetriever
 
 def print_clause(clause, index):
     print(f"\n{'='*80}")
     print(f"Rank: {index}")
+    print(f"Insurer: {clause.metadata.get('insurer')}")
     print(f"Section: {clause.metadata.get('section')}")
     print(f"Clause Number: {clause.metadata.get('clause_number')}")
     print(f"Clause Title: {clause.metadata.get('clause_title')}")
+    print(f"Clause ID: {clause.metadata.get('clause_id')}")
     print(f"Start Page: {clause.metadata.get('start_page')}")
     print("\nPreview:")
     print(clause.page_content[:500])
     print(f"\n{'='*80}")
 
-
 if __name__ == "__main__":
 
-    query = "What is the waiting period for pre-existing diseases?"
+    queries = [
+        "What is the Grace Period?",
+        "What is Re-fill benefit?",
+        "What is the moratorium period?",
+        "Is organ donor covered?",
+        "What is the definition of Hospital?",
+        "What are the conditions for renewal of the policy?"
+    ]
 
     print("\nLoading documents...")
+
     docs_icici = load_policy_documents(
-    pdf_path="data/icici_complete_health.pdf",
-    insurer="ICICI Lombard",
-    policy_name="Complete Health Insurance",
-    uin="ICIHLIP25035V082425",
-    policy_version_year=2025
+        pdf_path="data/icici_complete_health.pdf",
+        insurer="ICICI Lombard",
+        policy_name="Complete Health Insurance",
+        uin="ICIHLIP25035V082425",
+        policy_version_year=2025
     )
 
     docs_niva = load_policy_documents(
@@ -43,62 +50,51 @@ if __name__ == "__main__":
         policy_version_year=2025
     )
 
-    docs = docs_icici + docs_niva
+    def choose_docs(choice: str):
+        mapping = {
+            "icici": docs_icici,
+            "niva": docs_niva,
+            "both": docs_icici + docs_niva
+        }
+
+        try:
+            return mapping[choice.lower()]
+        except KeyError:
+            raise ValueError("Invalid option. Choose: icici, niva, or both.")
+
+    docs = choose_docs("both")
 
     print("Splitting into clauses...")
     clause_docs = clause_based_splitter(docs)
 
     print(f"Total Clauses: {len(clause_docs)}")
 
-    # print("\nSearching for 'cataract' in clauses...\n")
-    # found = False
-    # for clause in clause_docs:
-    #     if "cataract" in clause.page_content.lower():
-    #         found = True
-    #         print("FOUND CATARACT CLAUSE:")
-    #         print(clause.page_content[:500])
-    #         print("-" * 80)
-
-    # if not found:
-    #     print("No clause contains the word 'cataract'")
 
     print("\nLoading embedding model...")
     embedding_model = load_embedding_model()
 
-    print("Building or loading FAISS index...")
-    vectorstore = build_or_load_vectorstore(
-        clause_docs,
-        embedding_model,
-        index_path="faiss_claimlens_index"
+    print("Building Hybrid Retriever...")
+    retriever = ClaimLensRetriever(
+        clause_documents=clause_docs,
+        embedding_model=embedding_model,
+        index_path="faiss_claimlens_index",
+        dense_top_k=40,
+        use_reranker=False
     )
 
-    print("\nRunning Dense Retrieval (Top 20)...")
-    dense_retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 40},
-    )
+    for query in queries:
 
-    dense_results = dense_retriever.invoke(query)
+        print("\n" + "#" * 100)
+        print(f"QUERY: {query}")
+        print("#" * 100)
 
-    print(f"\nDense Retrieved Clauses: {len(dense_results)}")
+        print("\nRunning Hybrid Retrieval (Dense + BM25 + Reranker)...")
 
-    print(f"Query: {query}")
+        retrieved_docs = retriever.retrieve(query)
 
-    for i, clause in enumerate(dense_results, start=1):
-        print_clause(clause, i)
+        top_results = retrieved_docs[:5]
 
-    print("\nLoading reranker...")
-    reranker = ClauseReranker()
+        print(f"\nFinal Retrieved Clauses (Top 5): {len(top_results)}")
 
-    print("\nRunning Reranking (Top 5)...")
-    reranked_results = reranker.rerank(
-        query,
-        dense_results,
-        top_k=5
-    )
-
-    print(f"\nFinal Reranked Clauses: {len(reranked_results)}")
-    print(f"Query: {query}")
-
-    for i, clause in enumerate(reranked_results, start=1):
-        print_clause(clause, i)
+        for i, clause in enumerate(top_results, start=1):
+            print_clause(clause, i)
