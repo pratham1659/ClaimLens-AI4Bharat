@@ -1,7 +1,7 @@
 from app.ingestion.loader import load_policy_documents
 from app.ingestion.clause_splitter import clause_based_splitter
-from app.retriever.embeddings import load_embedding_model
-from app.retriever.retriever import ClaimLensRetriever
+from app.retrieval.embeddings import load_embedding_model
+from app.retrieval.retriever import ClaimLensRetriever
 from app.evaluation.evaluator import RetrievalEvaluator
 
 import json
