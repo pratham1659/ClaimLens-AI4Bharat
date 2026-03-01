@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     ALLOWED_HOSTS: str = "*"  # Comma-separated string
     # Comma-separated string
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    CORS_ORIGINS: str = "https://claimlen.com,https://www.claimlen.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173"
 
     # Security
     SECRET_KEY: str = Field(..., description="JWT secret key")

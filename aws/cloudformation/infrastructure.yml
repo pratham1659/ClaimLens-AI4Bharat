@@ -103,7 +103,11 @@ Resources:
         CorsRules:
           - AllowedHeaders: ['*']
             AllowedMethods: [GET, PUT, POST, DELETE]
-            AllowedOrigins: ['*']
+            AllowedOrigins:
+              - 'https://claimlen.com'
+              - 'https://www.claimlen.com'
+              - 'http://localhost:3000'
+              - 'http://127.0.0.1:3000'
             MaxAge: 3600
 
   # RDS Aurora PostgreSQL
