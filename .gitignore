@@ -1,0 +1,8 @@
+.env
+.env.sample
+claimlens_env
+faiss_claimlens_index
+indexes
+models
+scripts
+__pycache__
