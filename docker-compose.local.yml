@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: claimlens-backend
     env_file:
-      - .env.sample
+      - ${LOCAL_ENV_FILE:-.env.sample}
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/claimlens
       - REDIS_URL=redis://redis:6379/0

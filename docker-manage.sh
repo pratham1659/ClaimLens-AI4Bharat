@@ -95,16 +95,112 @@ get_docker_compose_cmd() {
     fi
 }
 
+# Function to verify docker daemon access and provide actionable guidance
+check_docker_access() {
+    local docker_error
+
+    if docker info > /dev/null 2>&1; then
+        return 0
+    fi
+
+    docker_error=$(docker info 2>&1 || true)
+
+    echo "❌ Cannot access Docker daemon"
+    echo ""
+
+    if echo "$docker_error" | grep -qiE "permission denied|/var/run/docker.sock"; then
+        echo "   It looks like your user doesn't have permission to access /var/run/docker.sock."
+        echo ""
+        echo "   Linux fix (one-time):"
+        echo "   1) sudo usermod -aG docker $USER"
+        echo "   2) newgrp docker"
+        echo "      (or log out and log back in)"
+        echo "   3) docker info"
+        echo "   4) ./docker-manage.sh start local"
+    else
+        echo "   Docker may not be running."
+        echo ""
+        echo "   Try:"
+        echo "   1) sudo systemctl start docker"
+        echo "   2) docker info"
+        echo "   3) ./docker-manage.sh start local"
+    fi
+
+    echo ""
+    echo "   Details: $docker_error"
+    exit 1
+}
+
+# Function to check if a TCP port is already in use on localhost
+is_port_in_use() {
+    local port=$1
+
+    if command -v ss &> /dev/null; then
+        ss -ltn 2>/dev/null | awk '{print $4}' | grep -E "(^|:)${port}$" > /dev/null
+        return $?
+    fi
+
+    if command -v lsof &> /dev/null; then
+        lsof -iTCP:"$port" -sTCP:LISTEN -n -P > /dev/null 2>&1
+        return $?
+    fi
+
+    return 1
+}
+
+# Function to resolve Redis host port conflicts
+resolve_redis_port_conflict() {
+    local mode=$1
+    local configured_port=${REDIS_HOST_PORT:-6379}
+
+    if ! is_port_in_use "$configured_port"; then
+        export REDIS_HOST_PORT="$configured_port"
+        echo "🔌 Redis host port: $REDIS_HOST_PORT"
+        return 0
+    fi
+
+    if [[ -n "${REDIS_HOST_PORT+x}" ]]; then
+        echo "❌ Redis host port $configured_port is already in use"
+        echo "   Set REDIS_HOST_PORT to a free port and retry"
+        echo "   Example: REDIS_HOST_PORT=6380 ./docker-manage.sh start $mode"
+        exit 1
+    fi
+
+    if [[ "$mode" == "local" ]]; then
+        local fallback_port
+        for fallback_port in $(seq 6380 6399); do
+            if ! is_port_in_use "$fallback_port"; then
+                export REDIS_HOST_PORT="$fallback_port"
+                echo "⚠️  Host port 6379 is busy; using Redis host port $REDIS_HOST_PORT for this run"
+                echo "   To make this permanent, set REDIS_HOST_PORT=$REDIS_HOST_PORT in your local env file"
+                return 0
+            fi
+        done
+
+        echo "❌ Could not find a free fallback Redis host port in range 6380-6399"
+        exit 1
+    fi
+
+    echo "❌ Redis host port 6379 is already in use"
+    echo "   Set REDIS_HOST_PORT to a free port and retry"
+    exit 1
+}
+
 # Function to load environment variables based on mode
 load_env() {
     local mode=$1
+    local local_env_file=".env.sample"
+
+    if [[ ! -f "$local_env_file" && -f "env.sample" ]]; then
+        local_env_file="env.sample"
+    fi
     
     if [[ "$mode" == "local" ]]; then
-        if [[ -f ".env.sample" ]]; then
-            echo "📋 Loading .env.sample configuration..."
-            export $(grep -v '^#' .env.sample | xargs)
+        if [[ -f "$local_env_file" ]]; then
+            echo "📋 Loading $local_env_file configuration..."
+            export $(grep -v '^#' "$local_env_file" | xargs)
         else
-            echo "⚠️  Warning: .env.sample not found"
+            echo "⚠️  Warning: .env.sample/env.sample not found"
         fi
     elif [[ "$mode" == "prod" ]]; then
         if [[ -f ".env.prod" ]]; then
@@ -179,6 +275,12 @@ start_containers() {
         MODE="local"
         ENV_FILE=".env.sample"
         COMPOSE_FILES="-f docker-compose.yml -f docker-compose.local.yml"
+
+        if [[ ! -f "$ENV_FILE" && -f "env.sample" ]]; then
+            ENV_FILE="env.sample"
+        fi
+
+        export LOCAL_ENV_FILE="$ENV_FILE"
         echo "📋 Mode: Local Development"
         echo "   ✨ Features:"
         echo "      - Hot-reload enabled"
@@ -211,6 +313,12 @@ start_containers() {
     # Determine docker compose command
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
     echo "📦 Using: $DOCKER_COMPOSE_CMD"
+
+    # Check docker daemon access before any heavy work
+    check_docker_access
+
+    # Resolve Redis host port conflicts before compose up
+    resolve_redis_port_conflict "$MODE"
     
     # Check if docker compose files exist
     echo ""
@@ -237,7 +345,7 @@ start_containers() {
     if [[ ! -f "$ENV_FILE" ]]; then
         echo "⚠️  Warning: $ENV_FILE not found."
         if [[ "$MODE" == "local" ]]; then
-            echo "   Creating default .env.sample..."
+            echo "   Expected one of: .env.sample or env.sample"
             echo "   Please review and update the values."
         fi
     fi
@@ -362,7 +470,7 @@ start_containers() {
         echo "   - Model: ${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}"
     fi
     echo "   - PostgreSQL:          localhost:5432"
-    echo "   - Redis:               localhost:6379"
+    echo "   - Redis:               localhost:${REDIS_HOST_PORT:-6379}"
     echo ""
     echo "📋 Useful Commands:"
     echo "   - View all logs: ./docker-manage.sh logs"
