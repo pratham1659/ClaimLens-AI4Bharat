@@ -327,6 +327,8 @@ Things.txt
 .env.sample
 .env
 .env.sample
+.env.prod
+.env.prod.local
 
 # Local runtime artifacts
 dump.rdb

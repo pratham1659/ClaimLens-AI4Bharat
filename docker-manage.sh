@@ -1000,7 +1000,7 @@ s3_create_bucket() {
     echo "📦 Creating S3 bucket in LocalStack..."
     echo ""
     
-    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-prod-documents-ap-south-1}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
         echo "❌ LocalStack is not running"
@@ -1022,7 +1022,7 @@ s3_list() {
     echo "📦 Listing S3 bucket contents..."
     echo ""
     
-    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-prod-documents-ap-south-1}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
         echo "❌ LocalStack is not running"

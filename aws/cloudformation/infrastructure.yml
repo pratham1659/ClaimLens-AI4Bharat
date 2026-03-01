@@ -89,7 +89,7 @@ Resources:
   DocumentsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub claimlens-documents-${Environment}-${AWS::AccountId}
+      BucketName: !Sub claimlens-prod-documents-ap-south-1-${Environment}-${AWS::AccountId}
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
