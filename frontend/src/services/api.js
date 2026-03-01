@@ -5,9 +5,24 @@
  */
 
 import axios from "axios";
+import { getErrorMessage } from "../utils/error";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+
+const normalizeBrowserAccessibleUrl = (url) => {
+  if (!url) return url;
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "localstack") {
+      parsed.hostname = window.location.hostname || "localhost";
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+};
 
 // Create axios instance
 const api = axios.create({
@@ -36,7 +51,7 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config || {};
 
     // Handle 401 errors (unauthorized)
     if (error.response?.status === 401 && !originalRequest._retry) {
@@ -64,6 +79,8 @@ api.interceptors.response.use(
         return Promise.reject(refreshError);
       }
     }
+
+    error.userMessage = getErrorMessage(error, "Request failed");
 
     return Promise.reject(error);
   },
@@ -101,7 +118,8 @@ export const documentsAPI = {
   getUploadUrl: (data) => api.post("/documents/upload-url", data),
 
   uploadToS3: async (uploadUrl, file, contentType) => {
-    return axios.put(uploadUrl, file, {
+    const browserUrl = normalizeBrowserAccessibleUrl(uploadUrl);
+    return axios.put(browserUrl, file, {
       headers: {
         "Content-Type": contentType,
       },

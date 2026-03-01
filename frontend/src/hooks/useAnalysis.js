@@ -6,13 +6,14 @@
 import { useState, useCallback } from "react";
 import { analysisAPI } from "../services/api";
 import toast from "react-hot-toast";
+import { getErrorMessage, isNotFoundError } from "../utils/error";
 
 export function useAnalysis() {
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const analyzeCliam = useCallback(async (claimId) => {
+  const analyzeClaim = useCallback(async (claimId) => {
     setAnalyzing(true);
     try {
       const response = await analysisAPI.analyze(claimId);
@@ -20,8 +21,7 @@ export function useAnalysis() {
       toast.success("Analysis completed");
       return response.data.data;
     } catch (error) {
-      const message = error.response?.data?.message || "Analysis failed";
-      toast.error(message);
+      toast.error(getErrorMessage(error, "Analysis failed"));
       throw error;
     } finally {
       setAnalyzing(false);
@@ -36,8 +36,8 @@ export function useAnalysis() {
       return response.data.data;
     } catch (error) {
       // No analysis yet is not an error
-      if (error.response?.status !== 404) {
-        toast.error("Failed to fetch analysis");
+      if (!isNotFoundError(error)) {
+        toast.error(getErrorMessage(error, "Failed to fetch analysis"));
       }
       return null;
     } finally {
@@ -50,7 +50,7 @@ export function useAnalysis() {
       const response = await analysisAPI.getHistory(claimId);
       return response.data;
     } catch (error) {
-      toast.error("Failed to fetch analysis history");
+      toast.error(getErrorMessage(error, "Failed to fetch analysis history"));
       throw error;
     }
   }, []);
@@ -59,7 +59,8 @@ export function useAnalysis() {
     analysis,
     analyzing,
     loading,
-    analyzeCliam,
+    analyzeClaim,
+    analyzeCliam: analyzeClaim,
     fetchAnalysis,
     fetchHistory,
   };

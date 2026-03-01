@@ -33,7 +33,7 @@ export function ClaimDetailPage() {
     analysis,
     analyzing,
     loading: analysisLoading,
-    analyzeCliam,
+    analyzeClaim,
     fetchAnalysis,
   } = useAnalysis();
 
@@ -66,7 +66,11 @@ export function ClaimDetailPage() {
   };
 
   const handleAnalyze = async () => {
-    await analyzeCliam(claimId);
+    try {
+      await analyzeClaim(claimId);
+    } catch {
+      // Error toast is handled in the hook
+    }
   };
 
   if (loading) {

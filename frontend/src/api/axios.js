@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getErrorMessage } from "../utils/error";
 
 // Get base URL from environment variable
 const baseURL =
@@ -62,6 +63,8 @@ axiosInstance.interceptors.response.use(
       error.message =
         "Request timeout. The server is taking too long to respond.";
     }
+
+    error.userMessage = getErrorMessage(error, "Request failed");
 
     // Only handle 401 errors for auth redirect
     if (error.response?.status === 401) {

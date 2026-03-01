@@ -6,6 +6,7 @@
 import { useState, useCallback } from "react";
 import { claimsAPI } from "../services/api";
 import toast from "react-hot-toast";
+import { getErrorMessage } from "../utils/error";
 
 export function useClaims() {
   const [claims, setClaims] = useState([]);
@@ -27,7 +28,7 @@ export function useClaims() {
         pageSize: response.data.page_size,
       });
     } catch (error) {
-      toast.error("Failed to fetch claims");
+      toast.error(getErrorMessage(error, "Failed to fetch claims"));
     } finally {
       setLoading(false);
     }
@@ -39,7 +40,7 @@ export function useClaims() {
       toast.success("Claim created successfully");
       return response.data.data;
     } catch (error) {
-      toast.error("Failed to create claim");
+      toast.error(getErrorMessage(error, "Failed to create claim"));
       throw error;
     }
   }, []);
@@ -49,7 +50,7 @@ export function useClaims() {
       const response = await claimsAPI.get(claimId);
       return response.data.data;
     } catch (error) {
-      toast.error("Failed to fetch claim");
+      toast.error(getErrorMessage(error, "Failed to fetch claim"));
       throw error;
     }
   }, []);
@@ -60,7 +61,7 @@ export function useClaims() {
       toast.success("Claim deleted successfully");
       setClaims((prev) => prev.filter((c) => c.id !== claimId));
     } catch (error) {
-      toast.error("Failed to delete claim");
+      toast.error(getErrorMessage(error, "Failed to delete claim"));
       throw error;
     }
   }, []);

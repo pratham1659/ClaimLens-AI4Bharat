@@ -6,6 +6,7 @@
 import { useState, useCallback } from "react";
 import { documentsAPI } from "../services/api";
 import toast from "react-hot-toast";
+import { getErrorMessage } from "../utils/error";
 
 export function useDocuments() {
   const [documents, setDocuments] = useState([]);
@@ -44,7 +45,7 @@ export function useDocuments() {
       toast.success(`${file.name} uploaded successfully`);
       return document_id;
     } catch (error) {
-      toast.error(`Failed to upload ${file.name}`);
+      toast.error(getErrorMessage(error, `Failed to upload ${file.name}`));
       throw error;
     } finally {
       setUploading(false);
@@ -64,7 +65,7 @@ export function useDocuments() {
       setDocuments(response.data);
       return response.data;
     } catch (error) {
-      toast.error("Failed to fetch documents");
+      toast.error(getErrorMessage(error, "Failed to fetch documents"));
       throw error;
     }
   }, []);
@@ -75,7 +76,7 @@ export function useDocuments() {
       setDocuments((prev) => prev.filter((d) => d.id !== documentId));
       toast.success("Document deleted");
     } catch (error) {
-      toast.error("Failed to delete document");
+      toast.error(getErrorMessage(error, "Failed to delete document"));
       throw error;
     }
   }, []);
@@ -85,7 +86,7 @@ export function useDocuments() {
       const response = await documentsAPI.getDownloadUrl(documentId);
       return response.data.download_url;
     } catch (error) {
-      toast.error("Failed to get download URL");
+      toast.error(getErrorMessage(error, "Failed to get download URL"));
       throw error;
     }
   }, []);

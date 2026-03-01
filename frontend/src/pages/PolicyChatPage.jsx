@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { clsx } from "clsx";
 import api from "../services/api";
+import { getErrorMessage } from "../utils/error";
 
 export function PolicyChatPage() {
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -138,9 +139,7 @@ export function PolicyChatPage() {
       ]);
     } catch (err) {
       console.error("Upload error:", err);
-      setError(
-        err.response?.data?.detail || "Failed to upload and process document",
-      );
+      setError(getErrorMessage(err, "Failed to upload and process document"));
       setUploading(false);
       setProcessing(false);
     }
@@ -218,9 +217,10 @@ export function PolicyChatPage() {
       console.error("Chat error:", err);
       const errorMessage = {
         role: "assistant",
-        content:
-          err.response?.data?.error ||
+        content: getErrorMessage(
+          err,
           "Sorry, I encountered an error processing your question. Please try again.",
+        ),
         timestamp: new Date().toISOString(),
         isError: true,
       };
