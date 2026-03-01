@@ -4,7 +4,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.ingestion.loader import load_policy_documents
-from app.ingestion.clause_splitter import clause_based_splitter
+from app.ingestion.clause_splitter import health_policy_splitter
 from app.retrieval.embeddings import load_embedding_model
 from app.retrieval.retriever import ClaimLensRetriever
 
@@ -24,12 +24,12 @@ def print_clause(clause, index):
 if __name__ == "__main__":
 
     queries = [
-        "What is the Grace Period?",
-        "What is Re-fill benefit?",
-        "What is the moratorium period?",
-        "Is organ donor covered?",
-        "What is the definition of Hospital?",
-        "What are the conditions for renewal of the policy?"
+        'Information about IVF'
+        # "Is cosmetic surgery covered?",
+        # "Is IVF covered?",
+        # "What is grace period?",
+        # "What are ICU charges?",
+        # "What is pre-existing disease?"
     ]
 
     print("\nLoading documents...")
@@ -62,10 +62,10 @@ if __name__ == "__main__":
         except KeyError:
             raise ValueError("Invalid option. Choose: icici, niva, or both.")
 
-    docs = choose_docs("both")
+    docs = choose_docs("icici")
 
     print("Splitting into clauses...")
-    clause_docs = clause_based_splitter(docs)
+    clause_docs = health_policy_splitter(docs)
 
     print(f"Total Clauses: {len(clause_docs)}")
 

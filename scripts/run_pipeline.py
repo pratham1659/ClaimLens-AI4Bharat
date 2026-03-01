@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 
 from app.ingestion.loader import load_policy_documents
-from app.ingestion.clause_splitter import clause_based_splitter
+from app.ingestion.clause_splitter import health_policy_splitter
 from app.retrieval.retriever import ClaimLensRetriever
 from app.reasoning.reasoner import ClaimLensReasoner
 from app.pipeline import ClaimLensPipeline
@@ -57,7 +57,7 @@ def main():
     print(f"    ✓ Loaded {len(docs)} page-level documents.\n")
 
     print("[2] Splitting into clauses...")
-    clauses = clause_based_splitter(docs)
+    clauses = health_policy_splitter(docs)
     print(f"    ✓ Generated {len(clauses)} clause-level documents.\n")
 
     print("[3] Initializing embedding model...")
@@ -90,7 +90,7 @@ def main():
     )
     print("    ✓ Pipeline ready.\n")
 
-    query = "What is the waiting period for pre-existing diseases?"
+    query = "Is maternity covered?"
 
     print("[7] Running query...\n")
 

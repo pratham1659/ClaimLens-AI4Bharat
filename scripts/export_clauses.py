@@ -5,7 +5,7 @@ import json
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.ingestion.loader import load_policy_documents
-from app.ingestion.clause_splitter import clause_based_splitter
+from app.ingestion.clause_splitter import health_policy_splitter
 
 
 def export_clauses_to_json(output_path="all_clauses.json"):
@@ -40,10 +40,10 @@ def export_clauses_to_json(output_path="all_clauses.json"):
         except KeyError:
             raise ValueError("Invalid option. Choose: icici, niva, or both.")
     
-    docs = choose_docs("both")
+    docs = choose_docs("icici")
 
     print("Splitting into clauses...")
-    clause_docs = clause_based_splitter(docs)
+    clause_docs = health_policy_splitter(docs)
 
     print(f"Total clauses: {len(clause_docs)}")
 

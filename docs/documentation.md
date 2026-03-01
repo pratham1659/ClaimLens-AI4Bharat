@@ -188,170 +188,141 @@ Normalization rules:
 
 Sections persist until a new section is detected.
 
-## 2.3 Strict Numbered Clause Detection
+## 2.3 Universal Structural Detection (Atomic Clause Model)
 
-Only headings matching:
+The updated splitter uses a unified atomic clause model.
 
-    ^(\d+(?:\.\d+)*\.)\s+(.+)$
+Instead of hierarchical section → clause → bullet logic, every detected structural boundary becomes an **atomic clause chunk**.
 
-Examples accepted:
+Supported clause starters:
 
-- 1.
-- 1.1.
-- 4.2.8.
+1. Numbered Clauses  
+   Pattern:
+       ^(\d+(?:\.\d+)*)\.\s+(.+)$  
+   Examples:
+       1.
+       1.1.
+       2.3.4.
 
-Rejected:
+2. Alphabet Clauses  
+   Pattern:
+       ^([A-Z])\.\s+(.+)$  
+   Example:
+       A.
 
-- 24 hours
-- 30 days
-- 250 wellness points
+3. Roman Clauses  
+   Pattern:
+       ^([ivxlcdm]+)\.\s+(.+)$  
+   Example:
+       i.
+       iv.
 
-This prevents numeric body pollution.
+4. Code Clauses  
+   Pattern:
+       ^(Code-\s*[A-Za-z]*\d+)\s*:\s*(.+)$  
+   Example:
+       Code-Excl08:
 
-## 2.4 Heading Quality Hardening
+5. Definition Clauses  
+   Pattern:
+       ^([A-Z][A-Za-z\s\-\/]+?)\s+means\s+  
+   Example:
+       Grace Period means...
 
-A numbered heading is rejected if:
+Every detected structure becomes:
 
-- More than 12 words
-- Starts with:
-  - The
-  - If
-  - In case
-  - Further
-  - However
-  - Where
-  - Provided
-  - Subject to
-- Ends with a period
-- Contains unit tokens:
-  - hours, days, lac, points, inr, %, rs, per
-- Less than 50% words capitalized
+    chunk_type = "atomic_clause"
 
-Purpose:
+There is no bullet-level sub-splitting in the current version.
 
-- Eliminate sentence-style false positives
-- Prevent embedding noise
-- Improve retrieval precision upstream
+This simplifies:
 
-## 2.5 Deterministic Bullet-Level Splitting
+- Evaluation mapping
+- Retrieval consistency
+- Clause ID determinism
+- Multi-policy compatibility
 
-Supported bullet types:
+## 2.4 Universal Noise Filtering
 
-- •
-- -
+Before structural parsing, the splitter removes universal noise patterns:
 
-Regex:
+- Lines starting with "UIN:"
+- Lines starting with "CIN:"
+- Lines starting with "Page <number>"
 
-    ^\s*[•\-]\s+
+These are considered structural artifacts and never indexed.
 
-If bullets detected:
+This prevents:
 
-- Each bullet block becomes a retrievable chunk
-- Parent metadata preserved
-- chunk_type = "clause_bullet_level"
+- Retrieval pollution
+- False clause starts
+- Embedding contamination
 
-If no bullets:
+## 2.5 Deterministic Clause ID System (Revised)
 
-- Single clause chunk
-- chunk_type = "clause_level"
+The canonical clause ID format is now:
 
-NOT supported (intentional):
+    {InsurerClean}_p{Page}_{Identifier}_{OccurrenceIndex}
 
-- (a), (b)
-- (i), (ii)
-- Nested indentation
+Example:
+
+    ICICILombard_p8_Grace_Period_1
+    ICICILombard_p44_Code-Excl17_1
+
+Components:
+
+- Insurer name (whitespace removed)
+- Page number
+- Clause identifier (normalized)
+- Occurrence index
+
+### Why Occurrence Index Exists
+
+Real-world PDFs may contain:
+
+- Repeated headings on same page
+- Multi-column extraction artifacts
+- Duplicate clause numbers
+- Annexure restarts
+
+To prevent ID collision:
+
+A counter is maintained per:
+
+    (insurer, page, identifier)
+
+If repeated, occurrence_index increments deterministically.
+
+This guarantees:
+
+- No silent overwrites
+- Evaluation safety
+- Stable vector indexing
+- Deterministic behavior
+
+Duplicate clause IDs trigger a fail-fast `ValueError`.
+
+## 2.6 Atomic Clause Philosophy
+
+The system intentionally avoids:
+
+- Nested clause trees
+- Bullet-level splitting
+- Section-based ID prefixes
+- Hierarchical numbering inference
 
 Reason:
 
-- Avoid over-fragmentation
-- Maintain legal coherence
+Insurance PDFs are inconsistent.
 
-## 2.6 Canonical Clause ID System (Critical)
+Atomic chunking ensures:
 
-Each clause receives deterministic ID:
+- Simpler evaluation
+- Stable retrieval metrics
+- Reduced structural fragility
+- Better cross-policy generalization
 
-Format:
-
-    {Insurer}_{Section}_{ClauseNumber}
-
-Fallback:
-
-    {Insurer}_{Section}_{SanitizedClauseTitle}
-
-Examples:
-
-- ICICILombard_TotalPremium_4.1.7
-- ICICILombard_TotalPremium_GracePeriod
-
-Properties:
-
-- Insurer-aware
-- Deterministic
-- Stable across formatting changes
-- Evaluation-safe
-- Independent of embedding changes
-
-
-Clause IDs are the backbone of:
-
-- Retrieval evaluation
-- Debugging
-- Traceability
-
-## 2.6.1 Clause ID Collision Safety (Why Occurrence Index Exists)
-
-Real-world insurance PDFs are structurally inconsistent.
-
-The following edge cases occur frequently:
-
-- Duplicate headings caused by PDF extraction artifacts.
-- Clause numbers repeated across annexures.
-- Headings repeated across page breaks.
-- Formatting inconsistencies that cause the same clause number to appear multiple times on the same page.
-
-Because of this, the tuple:
-
-    {Insurer}_{Section}_{ClauseNumber}
-
-cannot be mathematically guaranteed to be globally unique.
-
-To guarantee deterministic uniqueness, the splitter maintains an occurrence counter per:
-
-    (insurer, page, clause_number)
-
-If the same structural heading appears multiple times, an incremented suffix is appended internally during generation before final canonicalization.
-
-Purpose of the counter:
-
-- Prevent silent ID collisions
-- Prevent evaluation corruption
-- Prevent overwriting during vector indexing
-- Ensure deterministic behavior even on malformed PDFs
-
-Important:
-
-The counter is NOT semantic numbering.
-It is purely a collision-prevention mechanism.
-
-ClaimLens prioritizes structural safety over assumptions about PDF cleanliness.
-
-## 2.7 TOC Filtering (Structural)
-
-Discarded if:
-
-1. Dotted leader pattern
-2. Trailing page number
-3. No body content
-
-No aggressive length heuristics used.
-
-Purpose:
-
-- Prevent TOC pollution
-- Improve retrieval precision
-- Preserve short but valid clauses
-
----
+----
 
 # 3. Retrieval Architecture (retriever.py)
 
@@ -432,81 +403,199 @@ Hybrid lexical retrieval remains future extensibility, not current implementatio
 
 # 4. Evaluation Framework (evaluator.py)
 
-Evaluation measures retrieval only.
+The evaluation layer measures retrieval performance only.
 
-LLM generation is not evaluated here.
+Reasoning quality is validated separately by schema enforcement.
 
-## 4.1 Evaluation Inputs
+The evaluator supports three evaluation modes.
 
-Each test case contains:
+## 4.1 Stage-wise Evaluation
 
-- query
-- relevant_clause_ids (canonical IDs)
+Used to diagnose retrieval pipeline components.
 
-Evaluation is clause-ID based.
+Method:
 
-Not clause-number based.
+    evaluate_stagewise()
 
-Not text-similarity based.
+Metrics computed:
 
-## 4.2 Metrics Implemented
+- Dense Recall@K
+- Hybrid Recall@K
+- Final Recall@K
+- Final MRR
 
-- Recall@5
-- Recall@20
-- Mean Reciprocal Rank (MRR)
+Flow per query:
 
-## 4.3 Recall@K
+1. Retriever returns:
+       dense
+       hybrid
+       final
+2. Recall is computed separately for each stage.
+3. MRR computed on final stage.
 
-Binary per query:
+Diagnostic Interpretation:
 
-- 1 if any relevant clause appears within top K
-- 0 otherwise
+- High Dense Recall but low Final Recall → reranking issue
+- Low Dense Recall → candidate generation issue
+- High Recall but low MRR → ranking order issue
 
-Interpretation:
+This enables retrieval debugging without modifying reasoning.
 
-- Recall@5 → ranking strength
-- Recall@20 → candidate coverage
+## 4.2 Single-Clause Evaluation
 
-Diagnostic meaning:
+Used for queries with exactly one correct clause.
 
-- High Recall@20, low Recall@5 → ranking issue
-- Low Recall@20 → retrieval or chunking issue
+Method:
 
-## 4.4 Mean Reciprocal Rank (MRR)
+    evaluate_single_clause()
 
-For first relevant clause at rank R:
+Metrics:
 
-    1 / R
+- Recall@K
+- MRR
 
-Examples:
+Binary recall:
 
-- Rank 1 → 1.0
-- Rank 2 → 0.5
-- Rank 5 → 0.2
-- Not retrieved → 0
+- 1.0 if relevant clause in top K
+- 0.0 otherwise
 
-MRR rewards early precision.
+MRR measures ranking precision.
 
-## 4.5 Evaluation Loop
+## 4.3 Multi-Clause Evaluation
 
-For each query:
+Used for multi-hop or definition-composite queries.
 
-1. Run retriever
-2. Collect returned clause_ids
-3. Compute Recall@5
-4. Compute Recall@20
-5. Compute MRR
-6. Average across queries
+Method:
 
-Output:
+    evaluate_multi_clause()
 
-{
-    "Recall@5": float,
-    "Recall@20": float,
-    "MRR": float
-}
+Metrics:
+
+- Clause Coverage@20
+- Full Recall@20
+- MRR
+
+Definitions:
+
+Clause Coverage@20:
+
+    (# of relevant clauses retrieved in top 20)
+    -------------------------------------------
+        (total relevant clauses)
+
+Full Recall@20:
+
+    1 if all relevant clauses retrieved
+    0 otherwise
+
+MRR:
+
+    Based on first relevant clause rank.
+
+This captures:
+
+- Breadth (coverage)
+- Completeness (full recall)
+- Ranking precision (MRR)
+
+## 4.4 Diagnostic Mode
+
+`evaluate_multi_clause()` supports:
+
+    diagnostics=True
+
+When enabled, it prints:
+
+- Query text
+- PASS / FAIL status
+- Coverage value
+- Reciprocal rank
+- Relevant clause IDs
+- Retrieved clause IDs
+- Missing clause IDs (if any)
+
+This allows:
+
+- Fine-grained debugging
+- Clause-level inspection
+- Error attribution
+- Iterative retrieval tuning
+
+## 4.5 Evaluation Safety
+
+Safeguards implemented:
+
+- Empty test set → raises ValueError
+- Missing clause_id metadata ignored safely
+- Deterministic averaging across queries
+- No reliance on text similarity
+
+Evaluation is strictly canonical clause-ID based.
 
 ---
+
+## 4.6 Evaluation Query Schema (schema.py)
+
+The evaluation layer uses a strict Pydantic schema to define ground-truth test cases.
+
+```python
+class EvaluationQuery(BaseModel):
+    query: str = Field(..., min_length=1)
+    relevant_clause_ids: List[str] = Field(..., min_items=1)
+```
+
+### Architectural Role
+
+`EvaluationQuery` defines the canonical structure for all retrieval evaluation inputs.
+
+Each evaluation entry must include:
+
+- A natural language query
+- A non-empty list of canonical clause IDs representing ground truth
+
+Evaluation JSON files are parsed into this schema before metrics are computed.
+
+### Field Constraints
+
+query:
+- Required
+- Must be a non-empty string
+- Prevents empty or malformed evaluation inputs
+
+relevant_clause_ids:
+- Required
+- Must contain at least one clause ID
+- Ensures every test case has defined ground truth
+
+### Why Strict Validation Is Required
+
+Evaluation integrity depends entirely on accurate ground truth.
+
+Without schema enforcement:
+
+- Empty relevance lists could inflate recall
+- Missing queries could silently pass
+- Malformed JSON could corrupt metrics
+- Clause-ID-based evaluation would become unreliable
+
+Strict validation guarantees:
+
+- Deterministic metric computation
+- Fail-fast behavior on malformed datasets
+- Stable benchmarking across experiments
+- No silent corruption of evaluation runs
+
+All evaluation methods:
+
+- evaluate_stagewise()
+- evaluate_single_clause()
+- evaluate_multi_clause()
+
+operate only on validated `EvaluationQuery` objects.
+
+---
+
+----
 
 
 # 5. Reasoning Layer

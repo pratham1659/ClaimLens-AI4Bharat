@@ -4,101 +4,85 @@ from collections import defaultdict
 from langchain_core.documents import Document
 
 
-def generate_clause_id(insurer, page, clause_number, occurrence_index):
+def generate_clause_id(insurer, page, identifier, occurrence_index):
     insurer_clean = (insurer or "").replace(" ", "")
-    clause_clean = clause_number.strip().rstrip(".")
-    return f"{insurer_clean}_p{page}_{clause_clean}_{occurrence_index}"
+    identifier_clean = re.sub(r"\s+", "_", identifier.strip())
+    return f"{insurer_clean}_p{page}_{identifier_clean}_{occurrence_index}"
 
-def clause_based_splitter(policy_documents: List[Document]) -> List[Document]:
+
+def health_policy_splitter(policy_documents: List[Document]) -> List[Document]:
 
     if not policy_documents:
         raise ValueError("Empty policy_documents list.")
 
-    sorted_docs = sorted(
-        policy_documents,
-        key=lambda doc: (
-            doc.metadata.get("insurer", ""),
-            doc.metadata.get("page", 0),
-        )
-    )
+    # Sort by page order
+    sorted_docs = sorted(policy_documents, key=lambda d: d.metadata.get("page", 0))
 
-    numbered_heading_pattern = re.compile(r"^(\d+(?:\.\d+)*\.)\s+(.+)$")
-    bullet_pattern = re.compile(r"^\s*[•\-]\s+")
+    noise_patterns = [
+        re.compile(r"^UIN\s*:", re.IGNORECASE),
+        re.compile(r"^CIN\s*:", re.IGNORECASE),
+        re.compile(r"^Page\s+\d+", re.IGNORECASE),
+    ]
+
+    numbered_pattern = re.compile(r"^(\d+(?:\.\d+)*)\.\s+(.+)$")
+    alpha_pattern = re.compile(r"^([A-Z])\.\s+(.+)$")
+    roman_pattern = re.compile(r"^([ivxlcdm]+)\.\s+(.+)$", re.IGNORECASE)
+    code_pattern = re.compile(r"^(Code-\s*[A-Za-z]*\d+)\s*:\s*(.+)$")
+    definition_pattern = re.compile(
+        r"^([A-Z][A-Za-z\s\-\/]+?)\s+means\s+",
+        re.IGNORECASE
+    )
 
     clause_documents: List[Document] = []
     clause_counter = defaultdict(int)
 
-    current_clause_number = None
-    current_clause_lines = []
-    current_start_page = None
+    current_identifier = None
+    current_lines = []
+    current_page = None
     current_metadata = None
 
-    def save_clause():
-        nonlocal current_clause_number, current_clause_lines
-        nonlocal current_start_page, current_metadata
+    def save_chunk():
+        nonlocal current_identifier, current_lines
+        nonlocal current_page, current_metadata
 
-        if not current_clause_number or not current_metadata:
+        if not current_identifier or not current_lines:
             return
 
-        clause_text = "\n".join(current_clause_lines).strip()
+        text = "\n".join(current_lines).strip()
+        if not text:
+            return
 
         key = (
             current_metadata.get("insurer"),
-            current_start_page,
-            current_clause_number,
+            current_page,
+            current_identifier,
         )
+
         clause_counter[key] += 1
 
         clause_id = generate_clause_id(
             current_metadata.get("insurer"),
-            current_start_page,
-            current_clause_number,
+            current_page,
+            current_identifier,
             clause_counter[key]
         )
 
-        metadata_base = {
+        metadata = {
             **current_metadata,
-            "chunk_type": "clause_level",
-            "clause_number": current_clause_number,
+            "chunk_type": "atomic_clause",
+            "clause_identifier": current_identifier,
             "clause_id": clause_id,
-            "start_page": current_start_page
+            "start_page": current_page,
         }
 
-        lines = clause_text.split("\n")
-
-        bullet_indices = [
-            i for i, l in enumerate(lines)
-            if bullet_pattern.match(l.strip())
-        ]
-
-        if not bullet_indices:
-            clause_documents.append(
-                Document(page_content=clause_text, metadata=metadata_base)
-            )
-            return
-
-        for i, bullet_index in enumerate(bullet_indices):
-            start = bullet_index
-            end = (
-                bullet_indices[i + 1]
-                if i + 1 < len(bullet_indices)
-                else len(lines)
-            )
-
-            bullet_chunk = "\n".join(lines[start:end]).strip()
-
-            bullet_metadata = metadata_base.copy()
-            bullet_metadata["chunk_type"] = "clause_bullet_level"
-            bullet_metadata["clause_id"] = f"{clause_id}__b{i+1}"
-
-            clause_documents.append(
-                Document(page_content=bullet_chunk, metadata=bullet_metadata)
-            )
+        clause_documents.append(
+            Document(page_content=text, metadata=metadata)
+        )
 
     for doc in sorted_docs:
 
         page_number = doc.metadata.get("page")
-        doc_metadata = doc.metadata
+        metadata = doc.metadata
 
         for raw_line in doc.page_content.splitlines():
 
@@ -106,28 +90,61 @@ def clause_based_splitter(policy_documents: List[Document]) -> List[Document]:
             if not line:
                 continue
 
-            match = numbered_heading_pattern.match(line)
+            if any(p.match(line) for p in noise_patterns):
+                continue
 
+            match = numbered_pattern.match(line)
             if match:
+                save_chunk()
+                current_identifier = match.group(1)
+                current_lines = [line]
+                current_page = page_number
+                current_metadata = metadata
+                continue
 
-                if current_clause_number is not None:
-                    save_clause()
+            match = alpha_pattern.match(line)
+            if match:
+                save_chunk()
+                current_identifier = match.group(1)
+                current_lines = [line]
+                current_page = page_number
+                current_metadata = metadata
+                continue
 
-                current_clause_number = match.group(1)
-                current_clause_lines = [line]
-                current_start_page = page_number
-                current_metadata = doc_metadata
+            match = roman_pattern.match(line)
+            if match:
+                save_chunk()
+                current_identifier = match.group(1)
+                current_lines = [line]
+                current_page = page_number
+                current_metadata = metadata
+                continue
 
-            else:
-                if current_clause_number is not None:
-                    current_clause_lines.append(line)
+            match = code_pattern.match(line)
+            if match:
+                save_chunk()
+                current_identifier = match.group(1)
+                current_lines = [line]
+                current_page = page_number
+                current_metadata = metadata
+                continue
 
-    if current_clause_number is not None:
-        save_clause()
+            match = definition_pattern.match(line)
+            if match:
+                save_chunk()
+                current_identifier = match.group(1).strip()
+                current_lines = [line]
+                current_page = page_number
+                current_metadata = metadata
+                continue
+
+            if current_identifier:
+                current_lines.append(line)
+
+    save_chunk()
 
     ids = [doc.metadata["clause_id"] for doc in clause_documents]
-
     if len(ids) != len(set(ids)):
-        raise ValueError("Duplicate clause_id detected after splitting.")
+        raise ValueError("Duplicate clause_id detected.")
 
     return clause_documents
