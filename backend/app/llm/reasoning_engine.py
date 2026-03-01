@@ -237,7 +237,133 @@ class ReasoningEngine:
             else:
                 response["approval_likelihood"] = "very_low"
 
+        # Normalize complex fields to strict schema expected by AnalysisResponse
+        response["compliance_risks"] = self._normalize_compliance_risks(
+            response.get("compliance_risks", [])
+        )
+        response["clause_references"] = self._normalize_clause_references(
+            response.get("clause_references", [])
+        )
+        response["recommendations"] = self._normalize_recommendations(
+            response.get("recommendations", [])
+        )
+        response["missing_documentation"] = [
+            str(item) for item in response.get("missing_documentation", [])
+        ]
+        response["reasoning"] = str(
+            response.get("reasoning") or "Analysis completed with limited information."
+        )
+
         return response
+
+    def _normalize_compliance_risks(self, risks: Any) -> List[Dict[str, Any]]:
+        """Normalize risk objects to ComplianceRisk schema."""
+        if not isinstance(risks, list):
+            return []
+
+        normalized = []
+        valid_severities = {"high", "medium", "low"}
+
+        for idx, risk in enumerate(risks):
+            if isinstance(risk, dict):
+                severity = str(risk.get("severity", "medium")).lower()
+                if severity not in valid_severities:
+                    severity = "medium"
+
+                normalized.append({
+                    "risk_id": str(risk.get("risk_id") or f"risk_{idx + 1}"),
+                    "severity": severity,
+                    "description": str(
+                        risk.get("description") or risk.get("risk") or "Compliance risk identified"
+                    ),
+                    "affected_clause": (
+                        str(risk.get("affected_clause"))
+                        if risk.get("affected_clause") is not None
+                        else None
+                    )
+                })
+            else:
+                normalized.append({
+                    "risk_id": f"risk_{idx + 1}",
+                    "severity": "medium",
+                    "description": str(risk),
+                    "affected_clause": None
+                })
+
+        return normalized
+
+    def _normalize_clause_references(self, refs: Any) -> List[Dict[str, Any]]:
+        """Normalize clause references to ClauseReference schema."""
+        if not isinstance(refs, list):
+            return []
+
+        normalized = []
+        for idx, ref in enumerate(refs):
+            if isinstance(ref, dict):
+                raw_score = ref.get("relevance_score", ref.get("relevance", 0.5))
+                try:
+                    score = float(raw_score)
+                except (TypeError, ValueError):
+                    score = 0.5
+                score = max(0.0, min(1.0, score))
+
+                normalized.append({
+                    "clause_id": str(ref.get("clause_id") or f"clause_{idx + 1}"),
+                    "clause_text": str(ref.get("clause_text") or ref.get("content") or ""),
+                    "relevance_score": score,
+                    "source_document": str(
+                        ref.get("source_document")
+                        or ref.get("source")
+                        or ref.get("insurer")
+                        or "unknown"
+                    )
+                })
+            else:
+                normalized.append({
+                    "clause_id": f"clause_{idx + 1}",
+                    "clause_text": str(ref),
+                    "relevance_score": 0.5,
+                    "source_document": "unknown"
+                })
+
+        return normalized
+
+    def _normalize_recommendations(self, recommendations: Any) -> List[Dict[str, Any]]:
+        """Normalize recommendations to Recommendation schema."""
+        if not isinstance(recommendations, list):
+            return []
+
+        normalized = []
+        valid_priorities = {"high", "medium", "low"}
+
+        for idx, rec in enumerate(recommendations):
+            if isinstance(rec, dict):
+                priority = str(rec.get("priority", "medium")).lower()
+                if priority not in valid_priorities:
+                    priority = "medium"
+
+                action = str(rec.get("action") or rec.get("recommendation") or "Review claim details")
+                rationale = str(
+                    rec.get("rationale")
+                    or rec.get("mitigation")
+                    or "Recommended based on analysis findings"
+                )
+
+                normalized.append({
+                    "recommendation_id": str(rec.get("recommendation_id") or f"rec_{idx + 1}"),
+                    "priority": priority,
+                    "action": action,
+                    "rationale": rationale
+                })
+            else:
+                normalized.append({
+                    "recommendation_id": f"rec_{idx + 1}",
+                    "priority": "medium",
+                    "action": str(rec),
+                    "rationale": "Recommended based on analysis findings"
+                })
+
+        return normalized
 
     def _get_default_value(self, field: str) -> Any:
         """Get default value for missing field."""

@@ -20,7 +20,8 @@ from app.core.exceptions import (
     ClaimLensException,
     claimlens_exception_handler,
     validation_exception_handler,
-    http_exception_handler
+    http_exception_handler,
+    unhandled_exception_handler
 )
 from app.api.v1.router import api_router
 from app.db.init_db import init_db
@@ -168,7 +169,20 @@ async def log_requests(request: Request, call_next):
     request.state.request_id = request_id
 
     # Process request
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration = time.time() - start_time
+        logger.exception(
+            "Request failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round(duration * 1000, 2)
+            }
+        )
+        raise
 
     # Calculate duration
     duration = time.time() - start_time
@@ -195,6 +209,7 @@ async def log_requests(request: Request, call_next):
 app.add_exception_handler(ClaimLensException, claimlens_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
 # Include API router

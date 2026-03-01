@@ -23,6 +23,25 @@ class VectorStore:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.target_embedding_dimension = 1536
+
+    def _normalize_embedding(self, embedding: List[float]) -> List[float]:
+        """Normalize embedding vector length to match pgvector column dimension."""
+        current_dim = len(embedding)
+
+        if current_dim == self.target_embedding_dimension:
+            return embedding
+
+        if current_dim > self.target_embedding_dimension:
+            logger.warning(
+                f"Truncating embedding dimension from {current_dim} to {self.target_embedding_dimension}"
+            )
+            return embedding[:self.target_embedding_dimension]
+
+        logger.warning(
+            f"Padding embedding dimension from {current_dim} to {self.target_embedding_dimension}"
+        )
+        return embedding + [0.0] * (self.target_embedding_dimension - current_dim)
 
     async def store_embeddings(
         self,
@@ -44,11 +63,12 @@ class VectorStore:
         embedding_records = []
 
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+            normalized_embedding = self._normalize_embedding(embedding)
             record = Embedding(
                 document_id=document_id,
                 chunk_index=i,
                 chunk_text=chunk,
-                embedding=embedding
+                embedding=normalized_embedding
             )
             self.db.add(record)
             embedding_records.append(record)
@@ -79,9 +99,10 @@ class VectorStore:
             List of (embedding, similarity_score) tuples
         """
         # Build query with cosine similarity
+        normalized_query_embedding = self._normalize_embedding(query_embedding)
         query = select(
             Embedding,
-            (1 - Embedding.embedding.cosine_distance(query_embedding)).label("similarity")
+            (1 - Embedding.embedding.cosine_distance(normalized_query_embedding)).label("similarity")
         )
 
         # Filter by document IDs if provided
@@ -90,9 +111,9 @@ class VectorStore:
 
         # Filter by threshold and order by similarity
         query = query.where(
-            (1 - Embedding.embedding.cosine_distance(query_embedding)) >= threshold
+            (1 - Embedding.embedding.cosine_distance(normalized_query_embedding)) >= threshold
         ).order_by(
-            Embedding.embedding.cosine_distance(query_embedding)
+            Embedding.embedding.cosine_distance(normalized_query_embedding)
         ).limit(limit)
 
         result = await self.db.execute(query)
@@ -124,6 +145,7 @@ class VectorStore:
         keyword_weight = 1 - semantic_weight
 
         # Build hybrid query
+        normalized_query_embedding = self._normalize_embedding(query_embedding)
         query = text("""
             WITH semantic_results AS (
                 SELECT 
@@ -159,7 +181,7 @@ class VectorStore:
         result = await self.db.execute(
             query,
             {
-                "query_embedding": query_embedding,
+                "query_embedding": normalized_query_embedding,
                 "keyword_query": keyword_query,
                 "document_ids": document_ids or [],
                 "doc_filter": document_ids is not None,

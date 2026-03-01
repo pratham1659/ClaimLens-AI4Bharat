@@ -11,6 +11,7 @@ from app.schemas.common import SingleResponse
 from app.models.user import User
 from app.services.analysis_service import AnalysisService
 from app.api.deps import get_analysis_service, get_current_user
+from app.core.exceptions import ResourceNotFoundError
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
@@ -64,11 +65,7 @@ async def get_analysis(
     )
 
     if not result:
-        return SingleResponse(
-            success=False,
-            message="No analysis found for this claim",
-            data=None
-        )
+        raise ResourceNotFoundError("Analysis", claim_id)
 
     return SingleResponse(
         data=AnalysisResponse.model_validate(result)

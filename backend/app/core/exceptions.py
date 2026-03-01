@@ -14,6 +14,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _normalize_error_message(detail: Any, fallback: str = "Request failed") -> str:
+    """Extract a readable error message from mixed exception detail payloads."""
+    if isinstance(detail, str):
+        return detail
+
+    if isinstance(detail, dict):
+        return detail.get("message") or detail.get("detail") or fallback
+
+    if isinstance(detail, list) and detail:
+        first = detail[0]
+        if isinstance(first, dict):
+            return first.get("msg") or first.get("message") or fallback
+        if isinstance(first, str):
+            return first
+
+    return fallback
+
+
 class ErrorResponse(BaseModel):
     """Standard error response schema."""
     success: bool = False
@@ -182,11 +200,44 @@ async def http_exception_handler(
     """
     Handler for FastAPI HTTP exceptions.
     """
+    message = _normalize_error_message(exc.detail, fallback="HTTP error")
+    details = exc.detail if isinstance(exc.detail, (dict, list)) else None
+
     return JSONResponse(
         status_code=exc.status_code,
         content=ErrorResponse(
             error_code="HTTP_ERROR",
-            message=exc.detail,
-            details=None
+            message=message,
+            details=details
+        ).model_dump()
+    )
+
+
+async def unhandled_exception_handler(
+    request: Request,
+    exc: Exception
+) -> JSONResponse:
+    """
+    Fallback handler for uncaught exceptions.
+    Always returns safe JSON payload instead of raw 500 responses.
+    """
+    request_id = getattr(request.state, "request_id", None)
+    logger.exception(
+        "Unhandled exception",
+        extra={
+            "path": request.url.path,
+            "method": request.method,
+            "request_id": request_id
+        }
+    )
+
+    details = {"request_id": request_id} if request_id else None
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=ErrorResponse(
+            error_code="INTERNAL_SERVER_ERROR",
+            message="An unexpected error occurred. Please try again.",
+            details=details
         ).model_dump()
     )

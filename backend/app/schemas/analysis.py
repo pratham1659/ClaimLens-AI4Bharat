@@ -4,7 +4,7 @@ Analysis-related Pydantic schemas.
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices
 from uuid import UUID
 from datetime import datetime
 from app.models.analysis import ApprovalLikelihood
@@ -36,7 +36,7 @@ class Recommendation(BaseModel):
 
 class AnalysisRequest(BaseModel):
     """Schema for analysis request."""
-    claim_id: UUID
+    claim_id: UUID = Field(validation_alias=AliasChoices("claim_id", "claimId"))
 
 
 class AnalysisResponse(BaseModel):

@@ -5,7 +5,7 @@ Document management endpoints.
 
 from typing import List, Optional
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, status, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, Depends, status, UploadFile, File, Form
 
 from app.schemas.document import (
     DocumentResponse,
@@ -14,6 +14,7 @@ from app.schemas.document import (
 )
 from app.schemas.common import SingleResponse
 from app.models.document import DocumentType, Document, DocumentStatus
+from app.models.claim import Claim, ClaimStatus
 from app.models.user import User
 from app.services.document_service import DocumentService
 from app.services.claim_service import ClaimService
@@ -24,6 +25,7 @@ from app.api.deps import (
 )
 from app.db.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from pydantic import BaseModel
 
 
@@ -80,9 +82,9 @@ async def get_upload_url(
 )
 async def process_document(
     document_id: UUID,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
-    document_service: DocumentService = Depends(get_document_service)
+    document_service: DocumentService = Depends(get_document_service),
+    claim_service: ClaimService = Depends(get_claim_service)
 ):
     """
     Trigger processing of an uploaded document.
@@ -91,15 +93,15 @@ async def process_document(
     """
     document = await document_service.get_document(document_id)
 
-    # Process in background for large files
-    background_tasks.add_task(
-        document_service.process_document,
-        document_id
-    )
+    # Verify ownership through parent claim
+    await claim_service.get_claim(document.claim_id, current_user)
+
+    # Process immediately to avoid request-scoped session issues in background tasks
+    document = await document_service.process_document(document_id)
 
     return SingleResponse(
         data=DocumentResponse.model_validate(document),
-        message="Document processing started"
+        message="Document processed successfully"
     )
 
 
@@ -225,16 +227,36 @@ async def upload_policy_document(
     content = await file.read()
     file_size = len(content)
 
+    # Reuse or create a dedicated claim for policy chat uploads
+    policy_claim_number = f"POLICY-CHAT-{current_user.id}"
+    claim_result = await db.execute(
+        select(Claim).where(
+            Claim.user_id == current_user.id,
+            Claim.claim_number == policy_claim_number
+        )
+    )
+    policy_claim = claim_result.scalar_one_or_none()
+
+    if not policy_claim:
+        policy_claim = Claim(
+            user_id=current_user.id,
+            claim_number=policy_claim_number,
+            patient_name="Policy Chat Upload",
+            status=ClaimStatus.PENDING,
+            claim_metadata={"system_generated": True, "purpose": "policy_chat_upload"}
+        )
+        db.add(policy_claim)
+        await db.flush()
+
     # Create document record
     doc_id = uuid4()
     document = Document(
         id=doc_id,
-        claim_id=None,  # Standalone policy document
+        claim_id=policy_claim.id,
         document_type=DocumentType.INSURANCE_POLICY,
         filename=file.filename,
-        original_filename=file.filename,
         file_size=file_size,
-        mime_type=file.content_type or "application/pdf",
+        content_type=file.content_type or "application/pdf",
         s3_key=f"policies/{doc_id}/{file.filename}",
         status=DocumentStatus.UPLOADED
     )

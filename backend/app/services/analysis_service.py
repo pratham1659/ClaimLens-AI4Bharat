@@ -209,9 +209,17 @@ class AnalysisService:
                     raise DocumentProcessingError(
                         f"Document {doc.filename} failed processing"
                     )
-                if doc.status != DocumentStatus.PROCESSED:
+                if doc.status == DocumentStatus.UPLOADED:
+                    raise ValidationError(
+                        f"Document {doc.filename} is uploaded but not processed yet"
+                    )
+                if doc.status == DocumentStatus.PROCESSING:
                     raise ValidationError(
                         f"Document {doc.filename} is still processing"
+                    )
+                if doc.status != DocumentStatus.PROCESSED:
+                    raise ValidationError(
+                        f"Document {doc.filename} is in {doc.status.value} state"
                     )
 
     def _get_document_by_type(

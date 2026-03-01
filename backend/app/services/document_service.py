@@ -36,11 +36,13 @@ class DocumentService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        endpoint_url = settings.S3_ENDPOINT_URL or settings.AWS_ENDPOINT_URL
         self.s3_client = boto3.client(
             "s3",
             region_name=settings.AWS_REGION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            endpoint_url=endpoint_url
         )
         self.pdf_parser = PDFParser()
         self.ocr_processor = OCRProcessor()
@@ -123,7 +125,13 @@ class DocumentService:
         """
         document = await self.get_document(document_id)
 
-        if document.status != DocumentStatus.UPLOADED:
+        if document.status == DocumentStatus.PROCESSING:
+            raise ValidationError("Document is still processing")
+
+        if document.status == DocumentStatus.PROCESSED:
+            raise ValidationError("Document is already processed")
+
+        if document.status not in [DocumentStatus.UPLOADED, DocumentStatus.FAILED]:
             raise ValidationError(
                 f"Document is in {document.status.value} state")
 
@@ -166,8 +174,16 @@ class DocumentService:
 
         except Exception as e:
             logger.error(f"Document processing failed: {str(e)}")
-            document.status = DocumentStatus.FAILED
-            await self.db.flush()
+            try:
+                await self.db.rollback()
+                failed_document = await self.get_document(document_id)
+                failed_document.status = DocumentStatus.FAILED
+                await self.db.flush()
+            except Exception as status_error:
+                logger.error(
+                    f"Failed to persist FAILED status for document {document_id}: {status_error}"
+                )
+                await self.db.rollback()
             raise DocumentProcessingError(f"Processing failed: {str(e)}")
 
     async def _process_policy_document(
