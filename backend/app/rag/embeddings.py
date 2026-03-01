@@ -44,7 +44,7 @@ class LocalEmbeddingService(BaseEmbeddingService):
     def _get_model(self):
         """Lazy load the embedding model."""
         if self._model is None:
-            from app.retriever.embeddings import load_embedding_model
+            from app.rag_main.retrieval.embeddings import load_embedding_model
             logger.info(
                 f"Loading local embedding model (size: {self._model_size})")
             self._model = load_embedding_model(model_size=self._model_size)

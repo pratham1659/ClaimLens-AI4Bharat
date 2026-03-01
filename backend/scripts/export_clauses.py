@@ -1,208 +1,119 @@
 #!/usr/bin/env python3
 """
-ClaimLens Clause Export Script
-==============================
+ClaimLens - Clause Export Script
 
-Exports all extracted policy clauses to a JSON file for inspection,
-debugging, or integration with other systems.
+Exports all clause-level documents into structured JSON.
 
-Output Format:
-    [
-        {
-            "clause_id": "ICICI_S1_C1",
-            "insurer": "ICICI Lombard",
-            "section": "Section 1: Coverage",
-            "clause_number": "1.1",
-            "clause_title": "Hospitalization",
-            "start_page": 5,
-            "content": "Full clause text..."
-        },
-        ...
-    ]
+Environment Variables:
+    DATA_DIR: Path to data folder (default: ./data)
+    OUTPUT_PATH: Output JSON file path (default: ./exports/all_clauses.json)
+    POLICY: icici / niva / both (default: icici)
 
-Output File:
-    data/all_clauses.json (default)
-    
 Usage:
-    cd backend && python3 scripts/export_clauses.py
-    cd backend && python3 scripts/export_clauses.py --output=/path/to/output.json
-    # or
-    ./scripts/run_rag.sh export
-
-Author: ClaimLens Team
+    python scripts/export_clauses.py
 """
 
-from app.ingestion.loader import load_policy_documents
-from app.ingestion.clause_splitter import clause_based_splitter
-import sys
 import os
+import sys
 import json
-import argparse
-from datetime import datetime
+from pathlib import Path
 
-# Set up path for imports BEFORE importing app modules
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BACKEND_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
-PROJECT_ROOT = os.path.abspath(os.path.join(BACKEND_DIR, ".."))
-sys.path.insert(0, BACKEND_DIR)
+from app.rag_main.ingestion.loader import load_policy_documents
+from app.rag_main.ingestion.clause_splitter import health_policy_splitter
 
-# Configuration from environment
-DATA_DIR = os.environ.get("DATA_DIR", os.path.join(PROJECT_ROOT, "data"))
 
-# Now import app modules
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data"))
+OUTPUT_PATH = Path(os.environ.get("OUTPUT_PATH", BASE_DIR / "exports" / "all_clauses.json"))
+POLICY = os.environ.get("POLICY", "icici").lower()
+
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def print_banner():
-    """Print script banner."""
-    print("\n" + "=" * 70)
-    print("  ClaimLens RAG - Clause Export")
-    print("=" * 70 + "\n")
+    print("\n" + "=" * 60)
+    print(" ClaimLens - Clause Export")
+    print("=" * 60)
+    print(f" Policy:       {POLICY}")
+    print(f" Output Path:  {OUTPUT_PATH}")
+    print("=" * 60 + "\n")
 
 
 def load_documents():
-    """
-    Load policy documents from PDF files.
+    documents = {}
 
-    Returns:
-        list: Combined list of documents from all policies
-    """
-    all_docs = []
+    icici_path = DATA_DIR / "icici_complete_health.pdf"
+    niva_path = DATA_DIR / "niva_rise.pdf"
 
-    # ICICI Complete Health Insurance
-    icici_path = os.path.join(DATA_DIR, "icici_complete_health.pdf")
-    if os.path.exists(icici_path):
-        print("Loading ICICI Complete Health Insurance...")
-        docs = load_policy_documents(
-            pdf_path=icici_path,
+    if icici_path.exists():
+        documents["icici"] = load_policy_documents(
+            pdf_path=str(icici_path),
             insurer="ICICI Lombard",
             policy_name="Complete Health Insurance",
             uin="ICIHLIP25035V082425",
-            policy_version_year=2025
+            policy_version_year=2025,
         )
-        all_docs.extend(docs)
-        print(f"  ✓ Loaded {len(docs)} pages")
 
-    # Niva Bupa Rise
-    niva_path = os.path.join(DATA_DIR, "niva_rise.pdf")
-    if os.path.exists(niva_path):
-        print("Loading Niva Bupa Rise Policy...")
-        docs = load_policy_documents(
-            pdf_path=niva_path,
+    if niva_path.exists():
+        documents["niva"] = load_policy_documents(
+            pdf_path=str(niva_path),
             insurer="Niva Bupa",
             policy_name="Rise Policy",
             uin="NIVHLIPXXXX",
-            policy_version_year=2025
+            policy_version_year=2025,
         )
-        all_docs.extend(docs)
-        print(f"  ✓ Loaded {len(docs)} pages")
 
-    return all_docs
-
-
-def export_clauses_to_json(clauses: list, output_path: str):
-    """
-    Export clauses to JSON file.
-
-    Args:
-        clauses: List of LangChain Document objects
-        output_path: Path to output JSON file
-    """
-    export_data = {
-        "metadata": {
-            "exported_at": datetime.utcnow().isoformat(),
-            "total_clauses": len(clauses),
-            "source": "ClaimLens RAG Pipeline"
-        },
-        "clauses": []
-    }
-
-    # Group clauses by insurer for statistics
-    insurers = {}
-
-    for clause in clauses:
-        clause_data = {
-            "clause_id": clause.metadata.get("clause_id", ""),
-            "insurer": clause.metadata.get("insurer", ""),
-            "policy_name": clause.metadata.get("policy_name", ""),
-            "section": clause.metadata.get("section", ""),
-            "clause_number": clause.metadata.get("clause_number", ""),
-            "clause_title": clause.metadata.get("clause_title", ""),
-            "start_page": clause.metadata.get("start_page", 0),
-            "content_length": len(clause.page_content),
-            "content": clause.page_content
-        }
-        export_data["clauses"].append(clause_data)
-
-        # Track insurer statistics
-        insurer = clause.metadata.get("insurer", "Unknown")
-        insurers[insurer] = insurers.get(insurer, 0) + 1
-
-    # Add insurer breakdown to metadata
-    export_data["metadata"]["breakdown_by_insurer"] = insurers
-
-    # Write to file
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(export_data, f, indent=2, ensure_ascii=False)
-
-    return insurers
-
-
-def main():
-    """Main entry point for clause export."""
-    print_banner()
-
-    # Parse arguments
-    parser = argparse.ArgumentParser(description="Export clauses to JSON")
-    parser.add_argument(
-        "--output", "-o",
-        default=os.path.join(DATA_DIR, "all_clauses.json"),
-        help="Output file path"
-    )
-    args = parser.parse_args()
-
-    output_path = args.output
-
-    # Load documents
-    print("Loading policy documents...")
-    docs = load_documents()
-
-    if not docs:
-        print("Error: No documents loaded!")
+    if not documents:
+        print("No policy PDFs found.")
         sys.exit(1)
 
-    print(f"\nTotal pages loaded: {len(docs)}")
+    return documents
 
-    # Split into clauses
-    print("\nSplitting into clauses...")
-    clause_docs = clause_based_splitter(docs)
-    print(f"Total clauses extracted: {len(clause_docs)}")
 
-    # Export to JSON
-    print(f"\nExporting to {output_path}...")
-    insurers = export_clauses_to_json(clause_docs, output_path)
-
-    # Print summary
-    print("\n" + "=" * 50)
-    print("  EXPORT SUMMARY")
-    print("=" * 50)
-    print(f"  Total Clauses: {len(clause_docs)}")
-    print(f"  Output File:   {output_path}")
-    print(f"\n  Breakdown by Insurer:")
-    for insurer, count in insurers.items():
-        print(f"    - {insurer}: {count} clauses")
-    print("=" * 50)
-
-    # File size
-    file_size = os.path.getsize(output_path)
-    if file_size > 1024 * 1024:
-        size_str = f"{file_size / (1024 * 1024):.2f} MB"
-    elif file_size > 1024:
-        size_str = f"{file_size / 1024:.2f} KB"
+def select_documents(documents: dict):
+    if POLICY == "icici":
+        return documents.get("icici", [])
+    elif POLICY == "niva":
+        return documents.get("niva", [])
+    elif POLICY == "both":
+        return documents.get("icici", []) + documents.get("niva", [])
     else:
-        size_str = f"{file_size} bytes"
+        raise ValueError("POLICY must be: icici, niva, both")
 
-    print(f"\n✓ Export complete ({size_str})")
+
+def export_clauses():
+
+    print_banner()
+
+    print("Loading policy documents...")
+    documents = load_documents()
+
+    docs = select_documents(documents)
+    print(f"✓ Total pages loaded: {len(docs)}")
+
+    print("\nSplitting into clauses...")
+    clause_docs = health_policy_splitter(docs)
+    print(f"✓ Total clauses extracted: {len(clause_docs)}")
+
+    export_data = []
+
+    for clause in clause_docs:
+        export_data.append({
+            "clause_id": clause.metadata.get("clause_id"),
+            "insurer": clause.metadata.get("insurer"),
+            "section": clause.metadata.get("section"),
+            "clause_number": clause.metadata.get("clause_number"),
+            "clause_title": clause.metadata.get("clause_title"),
+            "start_page": clause.metadata.get("start_page"),
+            "content": clause.page_content,
+        })
+
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+    print(f"\n✓ Clauses exported to: {OUTPUT_PATH}\n")
 
 
 if __name__ == "__main__":
-    main()
+    export_clauses()

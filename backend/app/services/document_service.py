@@ -19,10 +19,10 @@ from app.core.exceptions import (
     DocumentProcessingError,
     ValidationError
 )
-from app.ingestion.pdf_parser import PDFParser
-from app.ingestion.ocr_processor import OCRProcessor
-from app.ingestion.medical_extractor import MedicalExtractor
-from app.ingestion.clause_split import ClauseSplitter
+from app.rag_main.ingestion.pdf_parser import PDFParser
+from app.rag_main.ingestion.ocr_processor import OCRProcessor
+from app.rag_main.ingestion.medical_extractor import MedicalExtractor
+from app.rag_main.ingestion.clause_split import ClauseSplitter
 from app.rag.embeddings import EmbeddingService, get_embedding_service
 from app.rag.vector_store import VectorStore
 

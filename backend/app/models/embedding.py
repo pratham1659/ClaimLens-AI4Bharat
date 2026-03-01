@@ -34,7 +34,7 @@ class Embedding(Base):
     chunk_index = Column(Integer, nullable=False)
     chunk_text = Column(Text, nullable=False)
     # Titan embedding dimension
-    embedding = Column(Vector(1536), nullable=False)
+    embedding = Column(Vector(768), nullable=False)
 
     # Relationships
     document = relationship("Document", back_populates="embeddings")

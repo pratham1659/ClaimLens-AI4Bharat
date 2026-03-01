@@ -28,11 +28,11 @@ Usage:
 Author: ClaimLens Team
 """
 
-from app.ingestion.loader import load_policy_documents
-from app.ingestion.clause_splitter import clause_based_splitter
-from app.retriever.embeddings import load_embedding_model
-from app.retriever.retriever import ClaimLensRetriever
-from app.evaluation.evaluator import RetrievalEvaluator
+from app.rag_main.ingestion.loader import load_policy_documents
+from app.rag_main.ingestion.clause_splitter import clause_based_splitter
+from app.rag_main.retrieval.embeddings import load_embedding_model
+from app.rag_main.retrieval.retriever import ClaimLensRetriever
+from app.rag_main.evaluation.evaluator import RetrievalEvaluator
 import sys
 import os
 import json

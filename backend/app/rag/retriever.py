@@ -80,7 +80,7 @@ class RAGRetriever:
         """Lazy load the local FAISS-based retriever."""
         if self._local_retriever is None and self.use_local_faiss:
             try:
-                from app.retriever.embeddings import load_embedding_model
+                from app.rag_main.retrieval.embeddings import load_embedding_model
                 from langchain_core.documents import Document as LangchainDoc
                 from langchain_community.vectorstores import FAISS
                 import json
