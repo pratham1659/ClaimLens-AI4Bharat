@@ -34,8 +34,11 @@ services:
       - ENVIRONMENT=production
       - DEBUG=false
       - USE_LOCALSTACK=false
+      # RAG Configuration - Production Mode (AWS Bedrock)
       - USE_MOCK_LLM=false
       - BEDROCK_ENABLED=true
+      - EMBEDDING_MODE=bedrock
+      # AWS Configuration
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}

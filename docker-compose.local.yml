@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
     container_name: claimlens-backend
     env_file:
-      - .env.local
+      - .env.sample
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/claimlens
       - REDIS_URL=redis://redis:6379/0
@@ -54,11 +54,23 @@ services:
       - USE_LOCALSTACK=true
       - S3_ENDPOINT_URL=http://localstack:4566
       - AWS_ENDPOINT_URL=http://localstack:4566
+      # RAG Configuration - Local Mode
       - USE_MOCK_LLM=true
       - BEDROCK_ENABLED=false
+      - EMBEDDING_MODE=local
+      - EMBEDDING_MODEL_SIZE=base
+      # Model paths
+      - HF_HOME=/app/models
+      - TRANSFORMERS_CACHE=/app/models
+      - LOCAL_MODEL_PATH=/app/models
+      # FAISS Index paths
+      - FAISS_INDEX_PATH=/app/faiss_claimlens_index
+      - FAISS_COMBINED_INDEX_PATH=/app/faiss_claimlens_combined_index
     volumes:
       - ./backend:/app
       - ./backend/logs:/app/logs
+      - ./models:/app/models
+      - ./data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"

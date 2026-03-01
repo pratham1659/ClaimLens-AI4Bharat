@@ -35,9 +35,27 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan handler for startup and shutdown events.
     """
+    import os
+
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
+
+    # Log RAG configuration
+    use_mock_llm = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    bedrock_enabled = os.getenv("BEDROCK_ENABLED", "true").lower() == "true"
+    embedding_mode = os.getenv("EMBEDDING_MODE", "auto")
+
+    logger.info(f"RAG Configuration:")
+    logger.info(f"  - USE_MOCK_LLM: {use_mock_llm}")
+    logger.info(f"  - BEDROCK_ENABLED: {bedrock_enabled}")
+    logger.info(f"  - EMBEDDING_MODE: {embedding_mode}")
+
+    if use_mock_llm or not bedrock_enabled:
+        logger.info(
+            "  - Mode: LOCAL DEVELOPMENT (HuggingFace embeddings, Mock LLM)")
+    else:
+        logger.info("  - Mode: PRODUCTION (AWS Bedrock embeddings and LLM)")
 
     # Initialize database
     try:
@@ -46,6 +64,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization failed: {str(e)}")
         raise
+
+    # Pre-load embedding model in local mode for faster first request
+    if use_mock_llm or not bedrock_enabled:
+        try:
+            from app.rag.embeddings import get_embedding_service
+            embedding_service = get_embedding_service()
+            logger.info(f"Embedding service initialized: mode={embedding_service.mode}, "
+                        f"dimension={embedding_service.embedding_dimension}")
+        except Exception as e:
+            logger.warning(
+                f"Could not pre-initialize embedding service: {str(e)}")
 
     yield
 
@@ -118,7 +147,7 @@ AI-powered platform for analyzing medical insurance claims and ensuring complian
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

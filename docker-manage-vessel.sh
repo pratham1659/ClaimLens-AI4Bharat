@@ -103,9 +103,9 @@ load_env() {
     local mode=$1
     
     if [[ "$mode" == "local" ]]; then
-        if [[ -f ".env.local" ]]; then
-            echo "📋 Loading .env.local configuration..."
-            export $(grep -v '^#' .env.local | xargs)
+        if [[ -f ".env.sample" ]]; then
+            echo "📋 Loading .env.sample configuration..."
+            export $(grep -v '^#' .env.sample | xargs)
         fi
     elif [[ "$mode" == "prod" ]]; then
         if [[ -f ".env.prod" ]]; then

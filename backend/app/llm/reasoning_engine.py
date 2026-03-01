@@ -1,20 +1,22 @@
 # backend/app/llm/reasoning_engine.py
 """
 AI reasoning engine for claim compliance analysis.
+Supports both local (mock) and production (AWS Bedrock) modes.
 """
 
+import os
 import logging
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.llm.bedrock_client import BedrockClient
+from app.llm.bedrock_client import BedrockClient, get_llm_client
 from app.llm.prompts import (
     COMPLIANCE_ANALYSIS_SYSTEM_PROMPT,
     COMPLIANCE_ANALYSIS_PROMPT,
     MEDICAL_EXTRACTION_PROMPT
 )
-from app.rag.retriever import RAGRetriever
+from app.rag.retriever import create_rag_retriever
 from app.models.analysis import AnalysisResult, ApprovalLikelihood
 from app.core.exceptions import AIServiceError
 
@@ -25,12 +27,13 @@ class ReasoningEngine:
     """
     AI reasoning engine for medical claim compliance analysis.
     Combines RAG retrieval with LLM reasoning.
+    Supports both local development (mock) and production (Bedrock) modes.
     """
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.bedrock_client = BedrockClient()
-        self.retriever = RAGRetriever(db)
+        self.llm_client = get_llm_client()
+        self.retriever = create_rag_retriever(db)
 
     async def analyze_claim(
         self,
@@ -76,7 +79,7 @@ class ReasoningEngine:
 
         # Invoke LLM
         try:
-            response = await self.bedrock_client.invoke_with_json_output(
+            response = await self.llm_client.invoke_with_json_output(
                 prompt=prompt,
                 system_prompt=COMPLIANCE_ANALYSIS_SYSTEM_PROMPT,
                 max_tokens=4096
@@ -126,7 +129,7 @@ class ReasoningEngine:
             discharge_summary=discharge_summary_text
         )
 
-        response = await self.bedrock_client.invoke_with_json_output(
+        response = await self.llm_client.invoke_with_json_output(
             prompt=prompt,
             max_tokens=2048
         )

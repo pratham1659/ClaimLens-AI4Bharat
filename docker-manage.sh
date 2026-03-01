@@ -41,7 +41,7 @@ show_help() {
     echo ""
     echo "Modes:"
     echo "  local      - Local development with LocalStack & Mock LLM"
-    echo "               Uses: .env.local, docker-compose.local.yml"
+    echo "               Uses: .env.sample, docker-compose.local.yml"
     echo "               Features: Hot-reload, LocalStack S3, Mock AI responses"
     echo ""
     echo "  prod       - Production mode with AWS Bedrock"
@@ -52,7 +52,7 @@ show_help() {
     echo "  --volumes  - Also remove volumes when stopping"
     echo ""
     echo "Environment Files:"
-    echo "  .env.local  - Local development configuration (Mock LLM, LocalStack)"
+    echo "  .env.sample  - Local development configuration (Mock LLM, LocalStack)"
     echo "  .env.prod   - Production configuration (AWS Bedrock, real S3)"
     echo ""
     echo "Backup Features:"
@@ -100,11 +100,11 @@ load_env() {
     local mode=$1
     
     if [[ "$mode" == "local" ]]; then
-        if [[ -f ".env.local" ]]; then
-            echo "📋 Loading .env.local configuration..."
-            export $(grep -v '^#' .env.local | xargs)
+        if [[ -f ".env.sample" ]]; then
+            echo "📋 Loading .env.sample configuration..."
+            export $(grep -v '^#' .env.sample | xargs)
         else
-            echo "⚠️  Warning: .env.local not found"
+            echo "⚠️  Warning: .env.sample not found"
         fi
     elif [[ "$mode" == "prod" ]]; then
         if [[ -f ".env.prod" ]]; then
@@ -121,18 +121,63 @@ load_env() {
     fi
 }
 
+# Function to download HuggingFace models for RAG
+download_models() {
+    echo "📥 Checking HuggingFace models for RAG..."
+    
+    MODELS_DIR="./models"
+    
+    # Check if models directory exists and has content
+    if [[ -d "$MODELS_DIR" && -n "$(ls -A $MODELS_DIR 2>/dev/null)" ]]; then
+        echo "   ✅ Models directory exists and contains files"
+        return 0
+    fi
+    
+    echo "   📦 Models not found. Downloading required models..."
+    echo "   This may take a few minutes on first run..."
+    
+    # Create models directory
+    mkdir -p "$MODELS_DIR"
+    
+    # Check if Python3 and huggingface_hub are available
+    if ! command -v python3 &> /dev/null; then
+        echo "   ⚠️  Warning: python3 not found. Skipping model download."
+        echo "   You can download models manually by running:"
+        echo "   pip3 install huggingface_hub && python3 download_models.py"
+        return 1
+    fi
+    
+    # Install huggingface_hub if needed and download models
+    if python3 -c "import huggingface_hub" 2>/dev/null; then
+        python3 download_models.py
+    else
+        echo "   Installing huggingface_hub..."
+        pip3 install huggingface_hub --quiet 2>/dev/null
+        if [ $? -eq 0 ]; then
+            python3 download_models.py
+        else
+            echo "   ⚠️  Warning: Could not install huggingface_hub"
+            echo "   You can download models manually by running:"
+            echo "   pip3 install huggingface_hub && python3 download_models.py"
+            return 1
+        fi
+    fi
+    
+    echo ""
+}
+
 # Function to start containers
 start_containers() {
     echo "🐳 $PROJECT_NAME Docker Service Management Script"
     echo "===================================================="
     
     MODE="local"
-    ENV_FILE=".env.local"
+    ENV_FILE=".env.sample"
     COMPOSE_FILES="-f docker-compose.yml -f docker-compose.local.yml"
     
     if [[ "$1" == "local" || "$1" == "dev" || "$1" == "development" || -z "$1" ]]; then
         MODE="local"
-        ENV_FILE=".env.local"
+        ENV_FILE=".env.sample"
         COMPOSE_FILES="-f docker-compose.yml -f docker-compose.local.yml"
         echo "📋 Mode: Local Development"
         echo "   ✨ Features:"
@@ -192,9 +237,15 @@ start_containers() {
     if [[ ! -f "$ENV_FILE" ]]; then
         echo "⚠️  Warning: $ENV_FILE not found."
         if [[ "$MODE" == "local" ]]; then
-            echo "   Creating default .env.local..."
+            echo "   Creating default .env.sample..."
             echo "   Please review and update the values."
         fi
+    fi
+    
+    # Download HuggingFace models for local RAG (if in local mode)
+    if [[ "$MODE" == "local" ]]; then
+        echo ""
+        download_models
     fi
     
     echo ""
@@ -805,8 +856,8 @@ aws_setup() {
     
     echo "📋 Environment Configuration Files:"
     echo ""
-    echo "   .env.local (Local Development):"
-    if [[ -f ".env.local" ]]; then
+    echo "   .env.sample (Local Development):"
+    if [[ -f ".env.sample" ]]; then
         echo "      ✅ Found"
         echo "      - USE_LOCALSTACK=true"
         echo "      - USE_MOCK_LLM=true"

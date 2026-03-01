@@ -9,7 +9,7 @@ build/
 
 # Environment files
 .env
-.env.local
+.env.sample
 .env.development.local
 .env.test.local
 .env.production.local

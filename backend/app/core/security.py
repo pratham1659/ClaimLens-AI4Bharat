@@ -12,7 +12,44 @@ from app.core.config import settings
 
 
 # Password hashing context using bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# truncate_error=False allows handling of passwords > 72 bytes
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12
+)
+
+
+def _truncate_password(password: str, max_length: int = 72) -> str:
+    """
+    Truncate password to max_length bytes for bcrypt compatibility.
+    Bcrypt has a maximum password length of 72 bytes.
+
+    Args:
+        password: Plain text password
+        max_length: Maximum byte length (default 72 for bcrypt)
+
+    Returns:
+        Truncated password string
+    """
+    # Encode to bytes to handle UTF-8 properly
+    password_bytes = password.encode('utf-8')
+    if len(password_bytes) > max_length:
+        # Truncate to max_length bytes and decode back
+        password_bytes = password_bytes[:max_length]
+        # Ensure we don't break in the middle of a UTF-8 character
+        try:
+            return password_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            # If truncation broke a UTF-8 char, remove bytes until valid
+            while password_bytes:
+                password_bytes = password_bytes[:-1]
+                try:
+                    return password_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    continue
+            return ""
+    return password
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -26,7 +63,9 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    # Truncate password to 72 bytes for bcrypt compatibility
+    truncated_password = _truncate_password(plain_password)
+    return pwd_context.verify(truncated_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
@@ -39,7 +78,9 @@ def get_password_hash(password: str) -> str:
     Returns:
         Bcrypt hash of the password
     """
-    return pwd_context.hash(password)
+    # Truncate password to 72 bytes for bcrypt compatibility
+    truncated_password = _truncate_password(password)
+    return pwd_context.hash(truncated_password)
 
 
 def create_access_token(

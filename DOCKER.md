@@ -6,7 +6,7 @@ This project uses Docker with separate configurations for **Local Development** 
 
 | Mode | LLM | S3 Storage | Configuration |
 |------|-----|------------|---------------|
-| **Local** | Mock LLM (no AWS costs) | LocalStack | `.env.local`, `docker-compose.local.yml` |
+| **Local** | Mock LLM (no AWS costs) | LocalStack | `.env.sample`, `docker-compose.local.yml` |
 | **Production** | AWS Bedrock | AWS S3 | `.env.prod`, `docker-compose.prod.yml` |
 
 ## Quick Start
@@ -60,7 +60,7 @@ This will:
 
 | File | Purpose |
 |------|---------|
-| `.env.local` | Local development settings (Mock LLM, LocalStack) |
+| `.env.sample` | Local development settings (Mock LLM, LocalStack) |
 | `.env.prod` | Production settings (AWS Bedrock, real S3) |
 | `.env.example` | Template with all available options |
 
@@ -116,7 +116,7 @@ When running in local mode, the backend uses a Mock LLM that:
 - Doesn't require AWS credentials
 
 ```yaml
-# .env.local
+# .env.sample
 USE_MOCK_LLM=true
 BEDROCK_ENABLED=false
 ```
@@ -234,7 +234,7 @@ Backups are automatically created before:
 ### LLM not responding
 
 **Local mode:**
-- Verify `USE_MOCK_LLM=true` in `.env.local`
+- Verify `USE_MOCK_LLM=true` in `.env.sample`
 - Check backend logs for errors
 
 **Production mode:**

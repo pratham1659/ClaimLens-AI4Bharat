@@ -4,9 +4,9 @@ Application configuration management using Pydantic Settings.
 Supports environment-based configuration for different deployment stages.
 """
 
-from typing import List, Optional
-from pydantic_settings import BaseSettings
-from pydantic import Field, validator
+from typing import List, Optional, Union
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
 from functools import lru_cache
 
 
@@ -25,9 +25,9 @@ class Settings(BaseSettings):
 
     # API Configuration
     API_V1_PREFIX: str = "/api/v1"
-    ALLOWED_HOSTS: List[str] = ["*"]
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000", "http://localhost:5173"]
+    ALLOWED_HOSTS: str = "*"  # Comma-separated string
+    # Comma-separated string
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     # Security
     SECRET_KEY: str = Field(..., description="JWT secret key")
@@ -56,6 +56,17 @@ class Settings(BaseSettings):
     # AWS Bedrock
     BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307-v1:0"
     BEDROCK_EMBEDDING_MODEL_ID: str = "amazon.titan-embed-text-v1"
+    BEDROCK_ENABLED: bool = True
+
+    # RAG Configuration
+    USE_MOCK_LLM: bool = False
+    EMBEDDING_MODE: str = "auto"  # auto, local, bedrock, mock
+    EMBEDDING_MODEL_SIZE: str = "base"  # small, base, large (for local models)
+    LOCAL_MODEL_PATH: str = "/app/models"
+
+    # FAISS Index Paths
+    FAISS_INDEX_PATH: str = "faiss_claimlens_index"
+    FAISS_COMBINED_INDEX_PATH: str = "faiss_claimlens_combined_index"
 
     # Rate Limiting
     RATE_LIMIT_REQUESTS: int = 100
@@ -63,28 +74,40 @@ class Settings(BaseSettings):
 
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 50
-    ALLOWED_FILE_TYPES: List[str] = [".pdf", ".json"]
+    ALLOWED_FILE_TYPES: str = ".pdf,.json"  # Comma-separated string
 
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "json"
 
-    @validator("DATABASE_URL", pre=True)
+    @field_validator("DATABASE_URL")
+    @classmethod
     def validate_database_url(cls, v: str) -> str:
         if not v.startswith(("postgresql", "postgres")):
             raise ValueError("Only PostgreSQL databases are supported")
         return v
 
-    @validator("CORS_ORIGINS", pre=True)
-    def parse_cors_origins(cls, v):
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Get CORS origins as a list."""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    @property
+    def allowed_hosts_list(self) -> List[str]:
+        """Get allowed hosts as a list."""
+        return [host.strip() for host in self.ALLOWED_HOSTS.split(",") if host.strip()]
+
+    @property
+    def allowed_file_types_list(self) -> List[str]:
+        """Get allowed file types as a list."""
+        return [ft.strip() for ft in self.ALLOWED_FILE_TYPES.split(",") if ft.strip()]
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore"
+    )
 
 
 @lru_cache()

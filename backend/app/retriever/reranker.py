@@ -1,9 +1,30 @@
+import os
 from sentence_transformers import CrossEncoder
 
 RERANKER_MODELS = {
     "base": "BAAI/bge-reranker-base",
     "large": "BAAI/bge-reranker-large",
 }
+
+# Local model paths (when downloaded to ./models directory)
+LOCAL_MODEL_DIR = os.environ.get("LOCAL_MODEL_PATH", "/app/models")
+
+
+def _get_local_model_path(model_name: str) -> str:
+    """
+    Get local model path if models are downloaded locally.
+    Returns the HuggingFace model name if local path doesn't exist.
+    """
+    # Convert model name to local directory format
+    local_name = model_name.replace("/", "--")
+    local_path = os.path.join(LOCAL_MODEL_DIR, local_name)
+
+    if os.path.exists(local_path):
+        print(f"   Using local reranker model: {local_path}")
+        return local_path
+
+    # Fallback to HuggingFace download
+    return model_name
 
 
 class ClauseReranker:
@@ -34,7 +55,10 @@ class ClauseReranker:
         model_name = RERANKER_MODELS[model_size]
         print(f"Loading reranker model: {model_name} on {device.upper()}")
 
-        self.model = CrossEncoder(model_name, device=device)
+        # Try to use local model path if available
+        model_path = _get_local_model_path(model_name)
+
+        self.model = CrossEncoder(model_path, device=device)
 
     def rerank(self, query: str, candidate_clauses, top_k: int = 5):
         """

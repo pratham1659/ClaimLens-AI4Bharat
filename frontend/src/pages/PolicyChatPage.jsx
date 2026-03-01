@@ -1,6 +1,9 @@
 // frontend/src/pages/PolicyChatPage.jsx
 /**
  * Policy Chat page with document upload and RAG-powered chat.
+ * Supports both:
+ * - Uploaded document chat (requires document upload)
+ * - Pre-indexed policy chat (uses ICICI/Niva Bupa policies from data/)
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -15,6 +18,8 @@ import {
   CheckCircle,
   AlertCircle,
   Trash2,
+  Database,
+  BookOpen,
 } from "lucide-react";
 import { clsx } from "clsx";
 import api from "../services/api";
@@ -30,6 +35,11 @@ export function PolicyChatPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
 
+  // New state for pre-indexed mode
+  const [usePreindexed, setUsePreindexed] = useState(false);
+  const [preindexedInfo, setPreindexedInfo] = useState(null);
+  const [loadingInfo, setLoadingInfo] = useState(false);
+
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -40,6 +50,23 @@ export function PolicyChatPage() {
       chatEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
+
+  // Fetch pre-indexed policy info on mount
+  useEffect(() => {
+    const fetchPreindexedInfo = async () => {
+      setLoadingInfo(true);
+      try {
+        const response = await api.get("/policies/preindexed/info");
+        setPreindexedInfo(response.data);
+      } catch (err) {
+        console.error("Failed to fetch pre-indexed info:", err);
+        setPreindexedInfo({ available: false });
+      } finally {
+        setLoadingInfo(false);
+      }
+    };
+    fetchPreindexedInfo();
+  }, []);
 
   // Handle file selection
   const handleFileSelect = (e) => {
@@ -119,10 +146,30 @@ export function PolicyChatPage() {
     }
   };
 
+  // Enable pre-indexed mode
+  const handleUsePreindexed = () => {
+    setUsePreindexed(true);
+    setUploadedFile(null);
+    setDocumentId(null);
+    setPolicyChunks([]);
+    setError(null);
+
+    // Add welcome message for pre-indexed mode
+    setMessages([
+      {
+        role: "assistant",
+        content: `I'm ready to help you with pre-indexed insurance policies! I have access to ${preindexedInfo?.total_clauses || "multiple"} policy clauses from: ${preindexedInfo?.policies?.join(", ") || "various insurers"}.\n\nYou can ask me questions about coverage, claims, waiting periods, exclusions, and more!`,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+  };
+
   // Send chat message
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!inputMessage.trim() || !documentId) return;
+
+    // Allow sending if pre-indexed mode OR document uploaded
+    if (!inputMessage.trim() || (!documentId && !usePreindexed)) return;
 
     const userMessage = {
       role: "user",
@@ -135,14 +182,25 @@ export function PolicyChatPage() {
     setSending(true);
 
     try {
-      const response = await api.post("/policies/chat", {
-        document_id: documentId,
-        message: userMessage.content,
-        chat_history: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      });
+      let response;
+
+      if (usePreindexed) {
+        // Use pre-indexed query endpoint
+        response = await api.post("/policies/query", {
+          query: userMessage.content,
+          top_k: 5,
+        });
+      } else {
+        // Use document-specific chat endpoint
+        response = await api.post("/policies/chat", {
+          document_id: documentId,
+          message: userMessage.content,
+          chat_history: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        });
+      }
 
       const assistantMessage = {
         role: "assistant",
@@ -152,6 +210,7 @@ export function PolicyChatPage() {
           "I couldn't generate a response.",
         timestamp: new Date().toISOString(),
         sources: response.data.data?.sources || [],
+        mode: response.data.data?.mode || "unknown",
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -160,6 +219,7 @@ export function PolicyChatPage() {
       const errorMessage = {
         role: "assistant",
         content:
+          err.response?.data?.error ||
           "Sorry, I encountered an error processing your question. Please try again.",
         timestamp: new Date().toISOString(),
         isError: true,
@@ -177,35 +237,92 @@ export function PolicyChatPage() {
     setPolicyChunks([]);
     setMessages([]);
     setError(null);
+    setUsePreindexed(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
+
+  // Check if chat is ready
+  const isChatReady = documentId || usePreindexed;
 
   return (
     <div className="h-[calc(100vh-4rem)]">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Policy Chat</h1>
         <p className="text-gray-600 mt-1">
-          Upload a policy document and chat with AI to understand its contents
+          Upload a policy document or use pre-indexed policies to chat with AI
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100%-5rem)]">
         {/* Left Panel - Upload and Document Info */}
         <div className="lg:col-span-1 space-y-4">
-          {/* Upload Section */}
+          {/* Pre-indexed Policies Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">
-              Policy Document
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Database className="w-5 h-5 text-primary-600" />
+              Pre-indexed Policies
             </h2>
 
-            {!documentId ? (
+            {loadingInfo ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : preindexedInfo?.available ? (
+              <div className="space-y-3">
+                <div className="p-3 bg-green-50 rounded-lg">
+                  <p className="text-sm font-medium text-green-800">
+                    {preindexedInfo.total_clauses} clauses available
+                  </p>
+                  <p className="text-xs text-green-600 mt-1">
+                    From:{" "}
+                    {preindexedInfo.policies?.join(", ") || "Multiple insurers"}
+                  </p>
+                </div>
+
+                {!usePreindexed ? (
+                  <button
+                    onClick={handleUsePreindexed}
+                    className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    Chat with Pre-indexed Policies
+                  </button>
+                ) : (
+                  <div className="p-3 bg-primary-50 rounded-lg flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-primary-600" />
+                    <span className="text-sm text-primary-700 font-medium">
+                      Using pre-indexed policies
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 bg-yellow-50 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  No pre-indexed policies available.
+                </p>
+                <p className="text-xs text-yellow-600 mt-1">
+                  Run the indexing script to enable this feature.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Upload Section */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <Upload className="w-5 h-5 text-gray-600" />
+              Upload Custom Policy
+            </h2>
+
+            {!documentId && !usePreindexed ? (
               <>
                 {/* Drop Zone */}
                 <div
                   className={clsx(
-                    "border-2 border-dashed rounded-lg p-6 text-center transition-colors",
+                    "border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer",
                     uploadedFile
                       ? "border-primary-500 bg-primary-50"
                       : "border-gray-300 hover:border-gray-400",
@@ -277,7 +394,7 @@ export function PolicyChatPage() {
                   </button>
                 )}
               </>
-            ) : (
+            ) : documentId ? (
               <div className="space-y-4">
                 <div className="p-4 bg-green-50 rounded-lg flex items-start gap-3">
                   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -296,10 +413,22 @@ export function PolicyChatPage() {
                   className="w-full border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Upload New Document
+                  Start Over
                 </button>
               </div>
-            )}
+            ) : usePreindexed ? (
+              <div className="text-center py-4">
+                <p className="text-sm text-gray-500">
+                  Using pre-indexed policies
+                </p>
+                <button
+                  onClick={handleClear}
+                  className="mt-3 text-sm text-primary-600 hover:text-primary-700"
+                >
+                  Switch to custom upload
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {/* Policy Chunks Info */}
@@ -334,11 +463,16 @@ export function PolicyChatPage() {
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
           {/* Chat Header */}
           <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <Bot className="w-5 h-5 text-primary-600" />
               Chat with Policy AI
             </h2>
             <p className="text-sm text-gray-500">
-              Ask questions about the uploaded policy document
+              {usePreindexed
+                ? "Ask questions about pre-indexed insurance policies"
+                : documentId
+                  ? "Ask questions about your uploaded policy document"
+                  : "Upload a document or use pre-indexed policies to start chatting"}
             </p>
           </div>
 
@@ -353,7 +487,9 @@ export function PolicyChatPage() {
                   <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p className="text-lg font-medium">No messages yet</p>
                   <p className="text-sm mt-2">
-                    Upload a policy document to start chatting
+                    {preindexedInfo?.available
+                      ? "Use pre-indexed policies or upload a document to start chatting"
+                      : "Upload a policy document to start chatting"}
                   </p>
                 </div>
               </div>
@@ -386,9 +522,22 @@ export function PolicyChatPage() {
                     </p>
                     {message.sources && message.sources.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-gray-200">
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 mb-1">
                           Sources: {message.sources.length} relevant sections
                         </p>
+                        <div className="space-y-1">
+                          {message.sources.slice(0, 2).map((source, idx) => (
+                            <p
+                              key={idx}
+                              className="text-xs text-gray-400 truncate"
+                            >
+                              •{" "}
+                              {source.content?.substring(0, 80) ||
+                                source.clause_id}
+                              ...
+                            </p>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -406,7 +555,10 @@ export function PolicyChatPage() {
                   <Bot className="w-4 h-4 text-primary-600" />
                 </div>
                 <div className="bg-gray-100 rounded-lg px-4 py-3">
-                  <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                    <span className="text-sm text-gray-500">Thinking...</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -421,22 +573,27 @@ export function PolicyChatPage() {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 placeholder={
-                  documentId
+                  isChatReady
                     ? "Ask a question about the policy..."
-                    : "Upload a document first to start chatting"
+                    : "Upload a document or select pre-indexed policies first"
                 }
-                disabled={!documentId || sending}
+                disabled={!isChatReady || sending}
                 className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               />
               <button
                 type="submit"
-                disabled={!documentId || !inputMessage.trim() || sending}
+                disabled={!isChatReady || !inputMessage.trim() || sending}
                 className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Send className="w-4 h-4" />
                 Send
               </button>
             </form>
+            {usePreindexed && (
+              <p className="mt-2 text-xs text-gray-400 text-center">
+                Using local RAG with pre-indexed policy data
+              </p>
+            )}
           </div>
         </div>
       </div>

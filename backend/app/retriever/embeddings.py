@@ -1,3 +1,4 @@
+import os
 import torch
 from langchain_huggingface import HuggingFaceEmbeddings
 from dotenv import load_dotenv
@@ -9,6 +10,26 @@ BGE_MODELS = {
     "base": "BAAI/bge-base-en-v1.5",
     "small": "BAAI/bge-small-en-v1.5",
 }
+
+# Local model paths (when downloaded to ./models directory)
+LOCAL_MODEL_DIR = os.environ.get("LOCAL_MODEL_PATH", "/app/models")
+
+
+def _get_local_model_path(model_name: str) -> str:
+    """
+    Get local model path if models are downloaded locally.
+    Returns the HuggingFace model name if local path doesn't exist.
+    """
+    # Convert model name to local directory format
+    local_name = model_name.replace("/", "--")
+    local_path = os.path.join(LOCAL_MODEL_DIR, local_name)
+
+    if os.path.exists(local_path):
+        print(f"   Using local model: {local_path}")
+        return local_path
+
+    # Fallback to HuggingFace download
+    return model_name
 
 
 def _get_device() -> str:
@@ -57,8 +78,11 @@ def load_embedding_model(model_size: str = "base") -> HuggingFaceEmbeddings:
             "Consider model_size='base' or 'small' for faster inference."
         )
 
+    # Try to use local model path if available
+    model_path = _get_local_model_path(model_name)
+
     embedding_model = HuggingFaceEmbeddings(
-        model_name=model_name,
+        model_name=model_path,
         model_kwargs={"device": device},
         encode_kwargs={"normalize_embeddings": True},
     )

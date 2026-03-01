@@ -22,8 +22,8 @@ from app.core.exceptions import (
 from app.ingestion.pdf_parser import PDFParser
 from app.ingestion.ocr_processor import OCRProcessor
 from app.ingestion.medical_extractor import MedicalExtractor
-from backend.app.ingestion.clause_split import ClauseSplitter
-from app.rag.embeddings import EmbeddingService
+from app.ingestion.clause_split import ClauseSplitter
+from app.rag.embeddings import EmbeddingService, get_embedding_service
 from app.rag.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class DocumentService:
         self.ocr_processor = OCRProcessor()
         self.medical_extractor = MedicalExtractor()
         self.clause_splitter = ClauseSplitter()
-        self.embedding_service = EmbeddingService()
+        self.embedding_service = get_embedding_service()
 
     async def generate_upload_url(
         self,
