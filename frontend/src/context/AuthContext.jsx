@@ -1,8 +1,4 @@
 // frontend/src/context/AuthContext.jsx
-/**
- * Authentication context provider.
- * Manages user authentication state and provides auth methods.
- */
 
 import {
   createContext,
@@ -73,9 +69,20 @@ export function AuthProvider({ children }) {
       toast.success("Registration successful! Please login.");
       return true;
     } catch (error) {
-      const message = error.response?.data?.message || "Registration failed";
+      // Extract detailed error message from server response
+      const errorData = error.response?.data;
+      let message = "Registration failed";
+
+      if (errorData?.details && Array.isArray(errorData.details)) {
+        // Handle validation errors array
+        message = errorData.details.map((d) => d.message || d.msg).join(", ");
+      } else if (errorData?.message) {
+        message = errorData.message;
+      }
+
       toast.error(message);
-      return false;
+      // Throw the error so the component can catch it and show detailed errors
+      throw new Error(message);
     }
   }, []);
 

@@ -46,6 +46,13 @@ class PolicyQueryRequest(BaseModel):
     top_k: int = 5
 
 
+class PolicySearchRequest(BaseModel):
+    """Request model for searching policy clauses."""
+    query: str
+    document_ids: Optional[List[UUID]] = None
+    limit: int = 20
+
+
 @router.get(
     "",
     response_model=List[DocumentResponse],
@@ -119,30 +126,36 @@ async def get_policy_clauses(
     summary="Search policy clauses"
 )
 async def search_policies(
-    query: str,
-    document_ids: Optional[List[UUID]] = None,
-    limit: int = Query(10, ge=1, le=50),
+    request: PolicySearchRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Search across policy documents using semantic search.
     Automatically uses local FAISS in development or pgvector in production.
+
+    Request body:
+    - query: Search query string
+    - document_ids: Optional list of document IDs to search within
+    - limit: Maximum results (default 20, max 50)
     """
     from app.rag.retriever import create_rag_retriever
 
     retriever = create_rag_retriever(db)
 
+    # Ensure limit is within bounds
+    limit = min(request.limit, 50)
+
     results = await retriever.retrieve(
-        query=query,
-        document_ids=document_ids,
+        query=request.query,
+        document_ids=request.document_ids,
         top_k=limit,
         use_hybrid=True
     )
 
     return {
         "results": results,
-        "query": query,
+        "query": request.query,
         "count": len(results),
         "mode": retriever.embedding_service.mode
     }

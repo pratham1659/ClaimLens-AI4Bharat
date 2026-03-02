@@ -1,10 +1,4 @@
 // frontend/src/pages/PolicyChatPage.jsx
-/**
- * Policy Chat page with document upload and RAG-powered chat.
- * Supports both:
- * - Uploaded document chat (requires document upload)
- * - Pre-indexed policy chat (uses ICICI/Niva Bupa policies from data/)
- */
 
 import { useState, useRef, useEffect } from "react";
 import {
@@ -20,6 +14,8 @@ import {
   Trash2,
   Database,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { clsx } from "clsx";
 import api from "../services/api";
@@ -40,6 +36,9 @@ export function PolicyChatPage() {
   const [usePreindexed, setUsePreindexed] = useState(false);
   const [preindexedInfo, setPreindexedInfo] = useState(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
+
+  // Mobile panel state
+  const [showMobilePanel, setShowMobilePanel] = useState(false);
 
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -128,6 +127,7 @@ export function PolicyChatPage() {
 
       setPolicyChunks(processResponse.data.data?.chunks || []);
       setProcessing(false);
+      setShowMobilePanel(false); // Close panel on mobile after upload
 
       // Add welcome message
       setMessages([
@@ -152,6 +152,7 @@ export function PolicyChatPage() {
     setDocumentId(null);
     setPolicyChunks([]);
     setError(null);
+    setShowMobilePanel(false); // Close panel on mobile
 
     // Add welcome message for pre-indexed mode
     setMessages([
@@ -247,20 +248,52 @@ export function PolicyChatPage() {
   const isChatReady = documentId || usePreindexed;
 
   return (
-    <div className="h-[calc(100vh-4rem)]">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Policy Chat</h1>
-        <p className="text-gray-600 mt-1">
+    <div className="h-[calc(100vh-8rem)] sm:h-[calc(100vh-4rem)] flex flex-col">
+      {/* Header - Responsive */}
+      <div className="mb-4 sm:mb-6 flex-shrink-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+          Policy Chat
+        </h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-1">
           Upload a policy document or use pre-indexed policies to chat with AI
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100%-5rem)]">
-        {/* Left Panel - Upload and Document Info */}
-        <div className="lg:col-span-1 space-y-4">
+      {/* Mobile Toggle Panel Button */}
+      <div className="lg:hidden mb-3 flex-shrink-0">
+        <button
+          onClick={() => setShowMobilePanel(!showMobilePanel)}
+          className="w-full flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 shadow-sm touch-manipulation"
+        >
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-primary-600" />
+            <span className="font-medium text-gray-900">
+              {usePreindexed
+                ? "Using Pre-indexed Policies"
+                : documentId
+                  ? "Document Ready"
+                  : "Select Policy Source"}
+            </span>
+          </div>
+          {showMobilePanel ? (
+            <ChevronUp className="w-5 h-5 text-gray-500" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-gray-500" />
+          )}
+        </button>
+      </div>
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 min-h-0">
+        {/* Left Panel - Upload and Document Info (Collapsible on mobile) */}
+        <div
+          className={clsx(
+            "lg:col-span-1 space-y-4 overflow-y-auto",
+            showMobilePanel ? "block" : "hidden lg:block",
+          )}
+        >
           {/* Pre-indexed Policies Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
               <Database className="w-5 h-5 text-primary-600" />
               Pre-indexed Policies
             </h2>
@@ -284,7 +317,7 @@ export function PolicyChatPage() {
                 {!usePreindexed ? (
                   <button
                     onClick={handleUsePreindexed}
-                    className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2"
+                    className="w-full bg-primary-600 text-white py-2.5 sm:py-2 px-4 rounded-lg hover:bg-primary-700 flex items-center justify-center gap-2 touch-manipulation"
                   >
                     <BookOpen className="w-4 h-4" />
                     Chat with Pre-indexed Policies
@@ -311,8 +344,8 @@ export function PolicyChatPage() {
           </div>
 
           {/* Upload Section */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4 flex items-center gap-2">
               <Upload className="w-5 h-5 text-gray-600" />
               Upload Custom Policy
             </h2>
@@ -322,7 +355,7 @@ export function PolicyChatPage() {
                 {/* Drop Zone */}
                 <div
                   className={clsx(
-                    "border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer",
+                    "border-2 border-dashed rounded-lg p-4 sm:p-6 text-center transition-colors cursor-pointer touch-manipulation",
                     uploadedFile
                       ? "border-primary-500 bg-primary-50"
                       : "border-gray-300 hover:border-gray-400",
@@ -341,8 +374,8 @@ export function PolicyChatPage() {
 
                   {uploadedFile ? (
                     <div className="space-y-2">
-                      <FileText className="w-10 h-10 text-primary-600 mx-auto" />
-                      <p className="text-sm font-medium text-gray-900">
+                      <FileText className="w-8 h-8 sm:w-10 sm:h-10 text-primary-600 mx-auto" />
+                      <p className="text-sm font-medium text-gray-900 truncate px-2">
                         {uploadedFile.name}
                       </p>
                       <p className="text-xs text-gray-500">
@@ -351,9 +384,9 @@ export function PolicyChatPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Upload className="w-10 h-10 text-gray-400 mx-auto" />
+                      <Upload className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400 mx-auto" />
                       <p className="text-sm text-gray-600">
-                        Drop a PDF here or click to browse
+                        Drop a PDF here or tap to browse
                       </p>
                       <p className="text-xs text-gray-400">
                         Max file size: 50MB
@@ -363,7 +396,7 @@ export function PolicyChatPage() {
                 </div>
 
                 {error && (
-                  <div className="mt-4 p-3 bg-red-50 rounded-lg flex items-center gap-2 text-red-700 text-sm">
+                  <div className="mt-3 sm:mt-4 p-3 bg-red-50 rounded-lg flex items-center gap-2 text-red-700 text-sm">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
                     {error}
                   </div>
@@ -373,7 +406,7 @@ export function PolicyChatPage() {
                   <button
                     onClick={handleUpload}
                     disabled={uploading || processing}
-                    className="mt-4 w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="mt-3 sm:mt-4 w-full bg-primary-600 text-white py-2.5 sm:py-2 px-4 rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation"
                   >
                     {uploading ? (
                       <>
@@ -395,14 +428,14 @@ export function PolicyChatPage() {
                 )}
               </>
             ) : documentId ? (
-              <div className="space-y-4">
-                <div className="p-4 bg-green-50 rounded-lg flex items-start gap-3">
+              <div className="space-y-3 sm:space-y-4">
+                <div className="p-3 sm:p-4 bg-green-50 rounded-lg flex items-start gap-3">
                   <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium text-green-800">
                       Document Ready
                     </p>
-                    <p className="text-xs text-green-600 mt-1">
+                    <p className="text-xs text-green-600 mt-1 truncate">
                       {uploadedFile?.name}
                     </p>
                   </div>
@@ -410,7 +443,7 @@ export function PolicyChatPage() {
 
                 <button
                   onClick={handleClear}
-                  className="w-full border border-gray-300 text-gray-700 py-2 px-4 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
+                  className="w-full border border-gray-300 text-gray-700 py-2.5 sm:py-2 px-4 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2 touch-manipulation"
                 >
                   <Trash2 className="w-4 h-4" />
                   Start Over
@@ -423,7 +456,7 @@ export function PolicyChatPage() {
                 </p>
                 <button
                   onClick={handleClear}
-                  className="mt-3 text-sm text-primary-600 hover:text-primary-700"
+                  className="mt-3 text-sm text-primary-600 hover:text-primary-700 touch-manipulation"
                 >
                   Switch to custom upload
                 </button>
@@ -431,13 +464,13 @@ export function PolicyChatPage() {
             ) : null}
           </div>
 
-          {/* Policy Chunks Info */}
+          {/* Policy Chunks Info - Hidden on mobile when panel is collapsed */}
           {policyChunks.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                 Extracted Sections
               </h2>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
+              <div className="space-y-2 max-h-48 sm:max-h-64 overflow-y-auto">
                 {policyChunks.slice(0, 10).map((chunk, index) => (
                   <div
                     key={index}
@@ -446,7 +479,9 @@ export function PolicyChatPage() {
                     <p className="font-medium text-gray-800 mb-1">
                       Section {index + 1}
                     </p>
-                    <p className="line-clamp-2">{chunk.content || chunk}</p>
+                    <p className="line-clamp-2 text-xs sm:text-sm">
+                      {chunk.content || chunk}
+                    </p>
                   </div>
                 ))}
                 {policyChunks.length > 10 && (
@@ -460,14 +495,14 @@ export function PolicyChatPage() {
         </div>
 
         {/* Right Panel - Chat */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-0">
           {/* Chat Header */}
-          <div className="px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b flex-shrink-0">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Bot className="w-5 h-5 text-primary-600" />
               Chat with Policy AI
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-xs sm:text-sm text-gray-500 mt-1">
               {usePreindexed
                 ? "Ask questions about pre-indexed insurance policies"
                 : documentId
@@ -479,14 +514,16 @@ export function PolicyChatPage() {
           {/* Chat Messages */}
           <div
             ref={chatContainerRef}
-            className="flex-1 overflow-y-auto p-6 space-y-4"
+            className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4"
           >
             {messages.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center">
+              <div className="h-full flex items-center justify-center text-center px-4">
                 <div className="text-gray-400">
-                  <Bot className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg font-medium">No messages yet</p>
-                  <p className="text-sm mt-2">
+                  <Bot className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-3 sm:mb-4 opacity-50" />
+                  <p className="text-base sm:text-lg font-medium">
+                    No messages yet
+                  </p>
+                  <p className="text-xs sm:text-sm mt-2">
                     {preindexedInfo?.available
                       ? "Use pre-indexed policies or upload a document to start chatting"
                       : "Upload a policy document to start chatting"}
@@ -498,18 +535,18 @@ export function PolicyChatPage() {
                 <div
                   key={index}
                   className={clsx(
-                    "flex gap-3",
+                    "flex gap-2 sm:gap-3",
                     message.role === "user" ? "justify-end" : "justify-start",
                   )}
                 >
                   {message.role === "assistant" && (
-                    <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <Bot className="w-4 h-4 text-primary-600" />
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Bot className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-600" />
                     </div>
                   )}
                   <div
                     className={clsx(
-                      "max-w-[80%] rounded-lg px-4 py-3",
+                      "max-w-[85%] sm:max-w-[80%] rounded-lg px-3 sm:px-4 py-2 sm:py-3",
                       message.role === "user"
                         ? "bg-primary-600 text-white"
                         : message.isError
@@ -542,19 +579,19 @@ export function PolicyChatPage() {
                     )}
                   </div>
                   {message.role === "user" && (
-                    <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
-                      <User className="w-4 h-4 text-white" />
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 bg-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
+                      <User className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
                     </div>
                   )}
                 </div>
               ))
             )}
             {sending && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-4 h-4 text-primary-600" />
+              <div className="flex gap-2 sm:gap-3">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <Bot className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-primary-600" />
                 </div>
-                <div className="bg-gray-100 rounded-lg px-4 py-3">
+                <div className="bg-gray-100 rounded-lg px-3 sm:px-4 py-2 sm:py-3">
                   <div className="flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
                     <span className="text-sm text-gray-500">Thinking...</span>
@@ -566,8 +603,8 @@ export function PolicyChatPage() {
           </div>
 
           {/* Chat Input */}
-          <div className="px-6 py-4 border-t">
-            <form onSubmit={handleSendMessage} className="flex gap-3">
+          <div className="px-4 sm:px-6 py-3 sm:py-4 border-t flex-shrink-0">
+            <form onSubmit={handleSendMessage} className="flex gap-2 sm:gap-3">
               <input
                 type="text"
                 value={inputMessage}
@@ -578,15 +615,15 @@ export function PolicyChatPage() {
                     : "Upload a document or select pre-indexed policies first"
                 }
                 disabled={!isChatReady || sending}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="flex-1 px-3 sm:px-4 py-2.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed text-base sm:text-sm"
               />
               <button
                 type="submit"
                 disabled={!isChatReady || !inputMessage.trim() || sending}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-3 sm:px-4 py-2.5 sm:py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 touch-manipulation"
               >
                 <Send className="w-4 h-4" />
-                Send
+                <span className="hidden sm:inline">Send</span>
               </button>
             </form>
             {usePreindexed && (

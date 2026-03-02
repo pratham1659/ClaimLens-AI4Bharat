@@ -1,7 +1,4 @@
 // frontend/src/pages/PolicySearchPage.jsx
-/**
- * Policy search page with semantic search.
- */
 
 import { useState, useCallback } from "react";
 import { Search, FileText, Loader, BookOpen } from "lucide-react";
@@ -43,94 +40,103 @@ export function PolicySearchPage() {
     performSearch(value);
   };
 
+  const handleSuggestionClick = (suggestion) => {
+    setQuery(suggestion);
+    performSearch(suggestion);
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header - Responsive */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Policy Search</h1>
-        <p className="text-gray-600 mt-1">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
+          Policy Search
+        </h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-1">
           Search across your insurance policy documents using natural language
         </p>
       </div>
 
-      {/* Search Box */}
-      <div className="card p-6">
+      {/* Search Box - Responsive */}
+      <div className="card p-4 sm:p-6">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-400" />
+          <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
           <input
             type="text"
             value={query}
             onChange={handleQueryChange}
             placeholder="Search for coverage, exclusions, or specific conditions..."
-            className="w-full pl-12 pr-4 py-4 text-lg border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className="w-full pl-10 sm:pl-12 pr-10 sm:pr-4 py-3 sm:py-4 text-base sm:text-lg border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
           {loading && (
-            <Loader className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 text-primary-600 animate-spin" />
+            <Loader className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-primary-600 animate-spin" />
           )}
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="text-sm text-gray-500">Try:</span>
-          {[
-            "pre-existing conditions",
-            "emergency coverage",
-            "prescription drugs",
-            "mental health benefits",
-          ].map((suggestion) => (
-            <button
-              key={suggestion}
-              onClick={() => {
-                setQuery(suggestion);
-                performSearch(suggestion);
-              }}
-              className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200 transition-colors"
-            >
-              {suggestion}
-            </button>
-          ))}
+        {/* Suggestions - Responsive scroll on mobile */}
+        <div className="mt-3 sm:mt-4 flex items-start gap-2">
+          <span className="text-xs sm:text-sm text-gray-500 flex-shrink-0 pt-1">
+            Try:
+          </span>
+          <div className="flex flex-wrap gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:mx-0 sm:px-0">
+            {[
+              "pre-existing conditions",
+              "emergency coverage",
+              "prescription drugs",
+              "mental health benefits",
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => handleSuggestionClick(suggestion)}
+                className="px-2.5 sm:px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs sm:text-sm hover:bg-gray-200 transition-colors whitespace-nowrap touch-manipulation"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Results */}
+      {/* Results - Responsive */}
       {searched && (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900">
               {results.length} Results Found
             </h2>
           </div>
 
           {results.length === 0 ? (
-            <div className="card p-12 text-center">
-              <BookOpen className="w-12 h-12 text-gray-400 mx-auto" />
-              <h3 className="mt-4 text-lg font-medium text-gray-900">
+            <div className="card p-8 sm:p-12 text-center">
+              <BookOpen className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mx-auto" />
+              <h3 className="mt-3 sm:mt-4 text-base sm:text-lg font-medium text-gray-900">
                 No matching clauses found
               </h3>
-              <p className="mt-2 text-gray-500">
+              <p className="mt-2 text-sm sm:text-base text-gray-500">
                 Try different keywords or phrases
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {results.map((result, index) => (
                 <div
                   key={index}
-                  className="card p-6 hover:shadow-md transition-shadow"
+                  className="card p-4 sm:p-6 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <FileText className="w-5 h-5 text-primary-600" />
+                  <div className="flex items-start gap-3 sm:gap-4">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-primary-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm text-gray-500">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 mb-2">
+                        <span className="text-xs sm:text-sm text-gray-500">
                           Chunk #{result.chunk_index + 1}
                         </span>
-                        <span className="text-sm font-medium text-primary-600">
+                        <span className="text-xs sm:text-sm font-medium text-primary-600">
                           {Math.round(result.relevance_score * 100)}% match
                         </span>
                       </div>
-                      <p className="text-gray-700 whitespace-pre-wrap">
+                      <p className="text-sm sm:text-base text-gray-700 whitespace-pre-wrap break-words">
                         {highlightText(result.content, query)}
                       </p>
                     </div>
@@ -142,14 +148,14 @@ export function PolicySearchPage() {
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State - Responsive */}
       {!searched && !loading && (
-        <div className="card p-12 text-center">
-          <Search className="w-16 h-16 text-gray-300 mx-auto" />
-          <h3 className="mt-4 text-lg font-medium text-gray-900">
+        <div className="card p-8 sm:p-12 text-center">
+          <Search className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto" />
+          <h3 className="mt-3 sm:mt-4 text-base sm:text-lg font-medium text-gray-900">
             Search Your Policies
           </h3>
-          <p className="mt-2 text-gray-500 max-w-md mx-auto">
+          <p className="mt-2 text-sm sm:text-base text-gray-500 max-w-md mx-auto">
             Enter a query above to search through all your uploaded insurance
             policy documents using AI-powered semantic search.
           </p>

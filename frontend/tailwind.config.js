@@ -19,18 +19,22 @@ export default {
         },
         success: {
           50: "#f0fdf4",
+          200: "#bbf7d0",
           500: "#22c55e",
           700: "#15803d",
         },
         warning: {
           50: "#fffbeb",
+          200: "#fde68a",
           500: "#f59e0b",
           700: "#b45309",
         },
         danger: {
           50: "#fef2f2",
+          200: "#fecaca",
           500: "#ef4444",
           700: "#b91c1c",
+          800: "#991b1b",
         },
       },
       fontFamily: {

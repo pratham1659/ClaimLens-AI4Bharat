@@ -253,7 +253,11 @@ Create a `.env` file in the frontend directory:
 
 ```env
 # API Configuration
+# For local development:
 REACT_APP_API_BASE_URL=http://localhost:8000/api/v1
+
+# For production (in .env.production):
+# REACT_APP_API_BASE_URL=https://claimlen.com/api/v1
 
 # App Configuration
 REACT_APP_NAME=Employee Portal

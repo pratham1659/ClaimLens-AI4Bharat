@@ -47,6 +47,8 @@ show_help() {
     echo "  prod       - Production mode with AWS Bedrock"
     echo "               Uses: .env.prod, docker-compose.prod.yml"
     echo "               Features: AWS Bedrock LLM, production S3, optimized builds"
+    echo "               Production URL: https://claimlen.com"
+    echo "               API Docs: https://claimlen.com/docs"
     echo ""
     echo "Options:"
     echo "  --volumes  - Also remove volumes when stopping"
@@ -295,8 +297,14 @@ start_containers() {
         echo "   🔒 Features:"
         echo "      - AWS Bedrock for LLM"
         echo "      - AWS S3 for storage"
+        echo "      - AWS RDS for PostgreSQL (external)"
+        echo "      - AWS ElastiCache for Redis (external)"
+        echo "      - Frontend + Backend only (no local DB/Redis/LocalStack)"
+        echo "      - No model downloads (uses AWS Bedrock embeddings)"
         echo "      - Optimized builds"
         echo "      - Production logging"
+        echo "   🌐 Production URL: https://claimlen.com"
+        echo "   📚 API Docs: https://claimlen.com/docs"
     else
         echo "❌ Invalid mode: $1"
         echo ""
@@ -317,8 +325,10 @@ start_containers() {
     # Check docker daemon access before any heavy work
     check_docker_access
 
-    # Resolve Redis host port conflicts before compose up
-    resolve_redis_port_conflict "$MODE"
+    # Resolve Redis host port conflicts before compose up (only for local mode)
+    if [[ "$MODE" == "local" ]]; then
+        resolve_redis_port_conflict "$MODE"
+    fi
     
     # Check if docker compose files exist
     echo ""
@@ -351,76 +361,107 @@ start_containers() {
     fi
     
     # Download HuggingFace models for local RAG (if in local mode)
-    if [[ "$MODE" == "local" ]]; then
-        echo ""
-        download_models
-    fi
+    # NOTE: Disabled for UI testing mode - uncomment if you need RAG functionality
+    # if [[ "$MODE" == "local" ]]; then
+    #     echo ""
+    #     download_models
+    # fi
     
     echo ""
     echo "🚀 Building and starting services..."
     echo "   This may take a few minutes on first run..."
-    DOCKER_BUILDKIT=0 $DOCKER_COMPOSE_CMD $COMPOSE_FILES up -d --build
+    
+    # For production mode, only start frontend and backend (AWS handles db/redis)
+    if [[ "$MODE" == "prod" ]]; then
+        echo "   📦 Production mode: Starting frontend and backend only"
+        echo "   ☁️  Database and Redis are managed by AWS (RDS/ElastiCache)"
+        DOCKER_BUILDKIT=0 $DOCKER_COMPOSE_CMD $COMPOSE_FILES up -d --build frontend backend
+    else
+        DOCKER_BUILDKIT=0 $DOCKER_COMPOSE_CMD $COMPOSE_FILES up -d --build
+    fi
     
     echo ""
     echo "⏳ Waiting for services to be healthy..."
     sleep 10
     
-    # Wait for postgres to be ready
-    echo "🔍 Checking PostgreSQL health..."
-    max_retries=30
-    retry_count=0
-    while [ $retry_count -lt $max_retries ]; do
-        if $DOCKER_COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U ${DB_USER:-postgres} &> /dev/null; then
-            echo "✅ PostgreSQL is ready"
-            break
-        fi
-        retry_count=$((retry_count + 1))
-        echo "   Waiting for PostgreSQL... ($retry_count/$max_retries)"
-        sleep 2
-    done
-    
-    if [ $retry_count -eq $max_retries ]; then
-        echo "⚠️  Warning: PostgreSQL health check timed out"
-    fi
-    
-    # Wait for Redis to be ready
-    echo ""
-    echo "🔍 Checking Redis health..."
-    retry_count=0
-    while [ $retry_count -lt $max_retries ]; do
-        if $DOCKER_COMPOSE_CMD $COMPOSE_FILES exec -T redis redis-cli ping &> /dev/null; then
-            echo "✅ Redis is ready"
-            break
-        fi
-        retry_count=$((retry_count + 1))
-        echo "   Waiting for Redis... ($retry_count/$max_retries)"
-        sleep 2
-    done
-    
-    if [ $retry_count -eq $max_retries ]; then
-        echo "⚠️  Warning: Redis health check timed out"
-    fi
-    
-    # Wait for LocalStack if in local mode
+    # Only check local db/redis health for local mode
     if [[ "$MODE" == "local" ]]; then
-        echo ""
-        echo "🔍 Checking LocalStack health..."
+        # Wait for postgres to be ready
+        echo "🔍 Checking PostgreSQL health..."
+        max_retries=30
         retry_count=0
-        max_localstack_retries=15  # Shorter timeout for LocalStack
-        while [ $retry_count -lt $max_localstack_retries ]; do
-            # Check using docker's health status which is more reliable
-            HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_PREFIX}-localstack 2>/dev/null || echo "unknown")
-            if [[ "$HEALTH_STATUS" == "healthy" ]]; then
-                echo "✅ LocalStack is ready"
+        while [ $retry_count -lt $max_retries ]; do
+            if $DOCKER_COMPOSE_CMD $COMPOSE_FILES exec -T db pg_isready -U ${DB_USER:-postgres} &> /dev/null; then
+                echo "✅ PostgreSQL is ready"
                 break
             fi
             retry_count=$((retry_count + 1))
-            echo "   Waiting for LocalStack... ($retry_count/$max_localstack_retries) [status: $HEALTH_STATUS]"
+            echo "   Waiting for PostgreSQL... ($retry_count/$max_retries)"
             sleep 2
         done
         
-        if [ $retry_count -eq $max_localstack_retries ]; then
-            echo "⚠️  Warning: LocalStack health check timed out (continuing anyway)"
+        if [ $retry_count -eq $max_retries ]; then
+            echo "⚠️  Warning: PostgreSQL health check timed out"
+        fi
+        
+        # Wait for Redis to be ready
+        echo ""
+        echo "🔍 Checking Redis health..."
+        retry_count=0
+        while [ $retry_count -lt $max_retries ]; do
+            if $DOCKER_COMPOSE_CMD $COMPOSE_FILES exec -T redis redis-cli ping &> /dev/null; then
+                echo "✅ Redis is ready"
+                break
+            fi
+            retry_count=$((retry_count + 1))
+            echo "   Waiting for Redis... ($retry_count/$max_retries)"
+            sleep 2
+        done
+        
+        if [ $retry_count -eq $max_retries ]; then
+            echo "⚠️  Warning: Redis health check timed out"
+        fi
+        
+        # LocalStack health check - DISABLED for UI testing mode
+        # Uncomment if you enable localstack in docker-compose.local.yml
+        # echo ""
+        # echo "🔍 Checking LocalStack health..."
+        # retry_count=0
+        # max_localstack_retries=15  # Shorter timeout for LocalStack
+        # while [ $retry_count -lt $max_localstack_retries ]; do
+        #     # Check using docker's health status which is more reliable
+        #     HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_PREFIX}-localstack 2>/dev/null || echo "unknown")
+        #     if [[ "$HEALTH_STATUS" == "healthy" ]]; then
+        #         echo "✅ LocalStack is ready"
+        #         break
+        #     fi
+        #     retry_count=$((retry_count + 1))
+        #     echo "   Waiting for LocalStack... ($retry_count/$max_localstack_retries) [status: $HEALTH_STATUS]"
+        #     sleep 2
+        # done
+        #
+        # if [ $retry_count -eq $max_localstack_retries ]; then
+        #     echo "⚠️  Warning: LocalStack health check timed out (continuing anyway)"
+        # fi
+        echo ""
+        echo "ℹ️  LocalStack disabled (UI testing mode)"
+    else
+        # Production mode - just check backend health
+        echo "🔍 Checking Backend health..."
+        retry_count=0
+        max_retries=30
+        while [ $retry_count -lt $max_retries ]; do
+            if curl -sf http://localhost:8000/health &> /dev/null; then
+                echo "✅ Backend is ready"
+                break
+            fi
+            retry_count=$((retry_count + 1))
+            echo "   Waiting for Backend... ($retry_count/$max_retries)"
+            sleep 2
+        done
+        
+        if [ $retry_count -eq $max_retries ]; then
+            echo "⚠️  Warning: Backend health check timed out"
         fi
     fi
     
@@ -458,19 +499,26 @@ start_containers() {
         echo "   - Mode: Mock LLM (no AWS costs)"
         echo "   - Responses: Simulated for development"
     else
-        echo "   - Frontend:            http://localhost (port 80)"
-        echo "   - Backend API:         http://localhost:8000"
-        echo "   - Swagger Docs:        http://localhost:8000/docs"
-        echo "   - ReDoc:               http://localhost:8000/redoc"
-        echo "   - OpenAPI JSON:        http://localhost:8000/openapi.json"
-        echo "   - Health Check:        http://localhost:8000/health"
+        echo "   - Frontend:            https://claimlen.com"
+        echo "   - Backend API:         https://claimlen.com/api/v1"
+        echo "   - Swagger Docs:        https://claimlen.com/docs"
+        echo "   - ReDoc:               https://claimlen.com/redoc"
+        echo "   - OpenAPI JSON:        https://claimlen.com/openapi.json"
+        echo "   - Health Check:        https://claimlen.com/health"
         echo ""
         echo "🤖 LLM Configuration:"
         echo "   - Mode: AWS Bedrock"
         echo "   - Model: ${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}"
+        echo ""
+        echo "☁️  AWS Managed Services (external):"
+        echo "   - PostgreSQL:          AWS RDS (configured in .env.prod)"
+        echo "   - Redis:               AWS ElastiCache (configured in .env.prod)"
+        echo "   - S3 Storage:          AWS S3 (configured in .env.prod)"
     fi
-    echo "   - PostgreSQL:          localhost:5432"
-    echo "   - Redis:               localhost:${REDIS_HOST_PORT:-6379}"
+    if [[ "$MODE" == "local" ]]; then
+        echo "   - PostgreSQL:          localhost:5432"
+        echo "   - Redis:               localhost:${REDIS_HOST_PORT:-6379}"
+    fi
     echo ""
     echo "📋 Useful Commands:"
     echo "   - View all logs: ./docker-manage.sh logs"
@@ -532,6 +580,8 @@ restart_containers() {
         COMPOSE_FILES="-f docker-compose.yml -f docker-compose.prod.yml"
         echo "📋 Mode: Production"
         echo "   🔒 Features: AWS Bedrock, production settings"
+        echo "   🌐 Production URL: https://claimlen.com"
+        echo "   📚 API Docs: https://claimlen.com/docs"
     else
         echo "❌ Invalid mode: $1"
         echo ""

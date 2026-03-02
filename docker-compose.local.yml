@@ -1,6 +1,7 @@
 # docker-compose.local.yml
-# Local Development Configuration with LocalStack and Mock LLM
+# Local Development Configuration - UI Testing Only
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.local.yml up -d
+# This configuration runs only frontend, backend, redis, and db (no localstack or other services)
 
 services:
   # PostgreSQL Database with pgvector - Local Development
@@ -17,28 +18,29 @@ services:
   redis:
     command: redis-server --appendonly yes
 
-  # LocalStack for local AWS S3 emulation - Override to remove profiles
-  localstack:
-    image: localstack/localstack:latest
-    container_name: claimlens-localstack
-    ports:
-      - "4566:4566"
-    environment:
-      - SERVICES=s3
-      - DEBUG=1
-      - PERSISTENCE=1
-    volumes:
-      - localstack_data_local:/var/lib/localstack
-      - ./backend/scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - claimlens-network
+  # LocalStack for local AWS S3 emulation - DISABLED for UI testing
+  # Uncomment to enable localstack for S3 emulation
+  # localstack:
+  #   image: localstack/localstack:latest
+  #   container_name: claimlens-localstack
+  #   ports:
+  #     - "4566:4566"
+  #   environment:
+  #     - SERVICES=s3
+  #     - DEBUG=1
+  #     - PERSISTENCE=1
+  #   volumes:
+  #     - localstack_data_local:/var/lib/localstack
+  #     - ./backend/scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - claimlens-network
 
-  # Backend API - Local Development with Mock LLM
+  # Backend API - Local Development (UI Testing Only - No Models)
   backend:
     build:
       context: ./backend
@@ -51,25 +53,15 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=development
       - DEBUG=true
-      - USE_LOCALSTACK=true
-      - S3_ENDPOINT_URL=http://localstack:4566
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      # RAG Configuration - Local Mode
+      - USE_LOCALSTACK=false
+      # Disable all AI/ML features for UI testing (mock mode = no model loading)
       - USE_MOCK_LLM=true
       - BEDROCK_ENABLED=false
-      - EMBEDDING_MODE=local
-      - EMBEDDING_MODEL_SIZE=base
-      # Model paths
-      - HF_HOME=/app/models
-      - TRANSFORMERS_CACHE=/app/models
-      - LOCAL_MODEL_PATH=/app/models
-      # FAISS Index paths
-      - FAISS_INDEX_PATH=/app/faiss_claimlens_index
-      - FAISS_COMBINED_INDEX_PATH=/app/faiss_claimlens_combined_index
+      - SKIP_MODEL_LOADING=true
+      - EMBEDDING_MODE=mock
     volumes:
       - ./backend:/app
       - ./backend/logs:/app/logs
-      - ./models:/app/models
       - ./data:/app/data
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
@@ -78,8 +70,6 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      localstack:
         condition: service_healthy
 
   # Frontend - Local Development with hot-reload (Create React App)
@@ -120,5 +110,5 @@ services:
 
 volumes:
   postgres_data_local:
-  localstack_data_local:
+  # localstack_data_local:
   # ollama_data:
