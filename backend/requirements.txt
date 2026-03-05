@@ -44,7 +44,7 @@ langchain-huggingface>=0.0.1
 
 # Vector Store & Embeddings
 faiss-cpu>=1.7.4
-sentence-transformers>=2.2.0
+#sentence-transformers>=2.2.0
 
 # ML & Deep Learning
 torch>=2.0.0
