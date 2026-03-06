@@ -689,7 +689,7 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     else:
         if "definition" in detected_intents:
             coverage_explanation = (
-                "This question appears to be definition-based, and the policy wording provides the governing definition."
+                "The policy wording includes a definition that directly applies to your question."
             )
             plain_language_interpretation = (
                 "the definition clause should be read exactly because eligibility decisions often depend on these precise terms"
