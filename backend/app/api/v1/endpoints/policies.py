@@ -537,35 +537,82 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     """Generate a document-grounded fallback response when LLM is unavailable."""
     if not chunks:
         return (
-            "I could not find relevant policy clauses for your question in the uploaded/pre-indexed data. "
-            "Please rephrase your question or upload a clearer insurance policy PDF."
+            "I couldn’t find matching policy clauses for your question. "
+            "Please ask with clear keywords like ambulance, dental, waiting period, or room rent, "
+            "or upload a clearer insurance policy PDF."
         )
 
-    query_terms = {term for term in query.lower().split() if len(term) > 3}
+    normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
+    stopwords = {
+        "does", "this", "that", "with", "from", "your", "have", "will", "about",
+        "what", "when", "where", "which", "would", "could", "should", "there",
+        "their", "then", "than", "into", "policy", "cover", "covered", "coverage",
+    }
+    query_terms = {
+        term for term in normalized_query.split()
+        if len(term) > 2 and term not in stopwords
+    }
+    query_phrase = " ".join(normalized_query.split()).strip()
 
     scored_chunks = []
     for chunk in chunks:
         content = (chunk.get("content") or chunk.get("chunk_text") or "").strip()
         if not content:
             continue
-        lowered = content.lower()
+        lowered = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in content)
+
+        phrase_hit = 2 if query_phrase and query_phrase in lowered else 0
         term_hits = sum(1 for term in query_terms if term in lowered)
-        scored_chunks.append((term_hits, content))
+        score = phrase_hit + term_hits
 
-    scored_chunks.sort(key=lambda item: item[0], reverse=True)
-    top_contents = [content for _, content in scored_chunks[:3]]
+        scored_chunks.append((score, term_hits, content))
 
-    if not top_contents:
+    scored_chunks.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    matched_contents = [content for score, _, content in scored_chunks if score > 0][:3]
+
+    if not matched_contents:
         return (
-            "I found policy data, but I could not extract reliable supporting clauses for this query. "
-            "Please ask a more specific insurance question (for example, waiting period, exclusions, or claim timeline)."
+            f"I checked your policy, but I couldn’t find clear clauses matching '{query.strip()}'. "
+            "Try asking in a more specific way, for example: "
+            "‘Is ambulance covered under hospitalization?’, ‘Is dental excluded?’, or ‘What is the waiting period?’"
         )
 
-    bullets = "\n".join([f"- {content[:220].strip()}..." for content in top_contents])
+    matched_text = "\n".join(matched_contents).lower()
+    negative_signals = ["not covered", "excluded", "exclusion", "not payable", "not admissible"]
+    positive_signals = ["covered", "payable", "eligible", "reimburs", "cashless"]
+
+    negative_hits = sum(1 for token in negative_signals if token in matched_text)
+    positive_hits = sum(1 for token in positive_signals if token in matched_text)
+
+    if negative_hits > positive_hits:
+        short_answer = (
+            "Short answer: this looks restricted or not covered in the clauses I found, "
+            "unless there is a specific exception."
+        )
+    elif positive_hits > negative_hits:
+        short_answer = (
+            "Short answer: this looks covered, but policy conditions still apply "
+            "(limits, waiting period, and exclusions)."
+        )
+    else:
+        short_answer = (
+            "Short answer: the wording is unclear for this exact question, "
+            "so coverage depends on conditions and exclusions."
+        )
+
+    evidence_lines = []
+    for index, content in enumerate(matched_contents[:3], start=1):
+        snippet = " ".join(content.split())
+        if len(snippet) > 220:
+            snippet = f"{snippet[:220].rstrip()}..."
+        evidence_lines.append(f"{index}) {snippet}")
+
+    evidence_block = "\n".join(evidence_lines)
 
     return (
-        "Based on the retrieved clauses from your policy document, here is the most relevant information:\n"
-        f"{bullets}\n\n"
-        "Suggested next step: verify these clause details against your exact treatment/claim scenario "
-        "(diagnosis, hospitalization dates, and submitted documents) before final submission."
+        f"{short_answer}\n\n"
+        "Here’s what I found in your policy:\n"
+        f"{evidence_block}\n\n"
+        "Next step: share the exact treatment/procedure and hospitalization details, "
+        "and I’ll give you a clearer policy-based answer."
     )
