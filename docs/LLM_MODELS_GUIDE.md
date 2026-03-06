@@ -46,7 +46,7 @@ OLLAMA_HOST=http://ollama:11434
 OLLAMA_MODEL=llama3.2:3b
 
 # AWS Bedrock Configuration
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
 
 # Embedding Mode
 EMBEDDING_MODE=mock|local|bedrock|ollama
@@ -217,7 +217,7 @@ AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 
 # Model Selection
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
 
 # Embedding Model
 EMBEDDING_MODE=bedrock
@@ -331,7 +331,7 @@ EMBEDDING_MODEL_SIZE=base
 USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 OLLAMA_ENABLED=false
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
 EMBEDDING_MODE=bedrock
 ```
 
