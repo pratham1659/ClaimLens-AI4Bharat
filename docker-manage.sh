@@ -278,6 +278,19 @@ start_containers() {
     if [[ "$MODE" == "local" ]]; then
         resolve_redis_port_conflict "$MODE"
     fi
+
+    if [[ "$MODE" == "prod" ]]; then
+        if [[ -z "$DATABASE_URL" ]]; then
+            echo " DATABASE_URL is empty in .env"
+            echo "   Set DATABASE_URL before starting production mode"
+            exit 1
+        fi
+
+        if [[ "$DATABASE_URL" == *"@db:"* ]]; then
+            echo " Using local docker database host (db) in production mode"
+            echo "   This is supported in this compose setup and will start local db/redis containers."
+        fi
+    fi
     
     echo ""
     echo " Building and starting services..."

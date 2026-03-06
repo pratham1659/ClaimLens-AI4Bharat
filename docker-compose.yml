@@ -18,7 +18,7 @@ services:
   db:
     image: pgvector/pgvector:pg16
     container_name: claimlens-db
-    profiles: ["local"]
+    profiles: ["local", "prod"]
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
@@ -43,7 +43,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: claimlens-redis
-    profiles: ["local"]
+    profiles: ["local", "prod"]
     command: redis-server --appendonly yes
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
@@ -121,7 +121,9 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - claimlens-network
+      claimlens-network:
+        aliases:
+          - backend
     restart: unless-stopped
 
   # ============================================
@@ -162,8 +164,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
-      - claimlens-network
+      claimlens-network:
+        aliases:
+          - backend
     restart: always
     deploy:
       resources:
