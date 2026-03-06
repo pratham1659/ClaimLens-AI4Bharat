@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.openapi.utils import get_openapi
 from starlette.exceptions import HTTPException as StarletteHTTPException
 import time
 import uuid
@@ -25,6 +27,7 @@ from app.core.exceptions import (
 )
 from app.api.v1.router import api_router
 from app.db.init_db import init_db
+from app.core.security import decode_token
 
 # Setup logging
 setup_logging()
@@ -125,9 +128,9 @@ AI-powered platform for analyzing medical insurance claims and ensuring complian
 ### Policies
 - `POST /api/v1/policies/search` - Semantic search across policies
     """,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     lifespan=lifespan,
     openapi_tags=[
         {"name": "Health", "description": "Health check endpoints"},
@@ -205,6 +208,44 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+def _unauthorized_docs_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=401,
+        content={
+            "detail": "Authentication required for API docs. Provide a valid Bearer access token in the Authorization header."
+        },
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def enforce_docs_auth(request: Request):
+    docs_paths = {"/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"}
+    if request.url.path not in docs_paths:
+        return None
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.lower().startswith("bearer "):
+        return _unauthorized_docs_response()
+
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return _unauthorized_docs_response()
+
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != "access" or not payload.get("sub"):
+        return _unauthorized_docs_response()
+
+    return None
+
+
+@app.middleware("http")
+async def docs_auth_middleware(request: Request, call_next):
+    response = await enforce_docs_auth(request)
+    if response:
+        return response
+    return await call_next(request)
+
+
 # Exception handlers
 app.add_exception_handler(ClaimLensException, claimlens_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
@@ -247,6 +288,32 @@ async def root():
         "health": "/health",
         "api": settings.API_V1_PREFIX
     }
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def get_open_api_endpoint():
+    return get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+
+@app.get("/docs", include_in_schema=False)
+async def get_documentation():
+    return get_swagger_ui_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - Swagger UI",
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def get_redoc_documentation():
+    return get_redoc_html(
+        openapi_url="/openapi.json",
+        title=f"{app.title} - ReDoc",
+    )
 
 
 if __name__ == "__main__":
