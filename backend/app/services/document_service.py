@@ -4,6 +4,7 @@ Document service for file handling and processing.
 """
 
 import logging
+import re
 from typing import Optional, List
 from uuid import UUID
 import boto3
@@ -201,7 +202,29 @@ class DocumentService:
         )
 
         if not clauses:
-            logger.warning(f"No clauses extracted from document {document.id}")
+            logger.warning(
+                f"No structured clauses extracted from document {document.id}; using paragraph fallback chunking"
+            )
+            fallback_chunks = self._fallback_policy_chunks(text)
+            if not fallback_chunks:
+                logger.warning(f"No fallback chunks extracted from document {document.id}")
+                return
+
+            embeddings = await self.embedding_service.generate_embeddings_batch(
+                texts=fallback_chunks,
+                batch_size=10
+            )
+
+            vector_store = VectorStore(self.db)
+            await vector_store.store_embeddings(
+                document_id=document.id,
+                chunks=fallback_chunks,
+                embeddings=embeddings
+            )
+
+            logger.info(
+                f"Stored {len(embeddings)} fallback embeddings for policy document {document.id}"
+            )
             return
 
         # Generate embeddings for each clause
@@ -221,6 +244,36 @@ class DocumentService:
 
         logger.info(
             f"Stored {len(embeddings)} embeddings for policy document {document.id}")
+
+    def _fallback_policy_chunks(self, text: str, max_words: int = 160) -> List[str]:
+        """Fallback chunking for policy text when structured clause splitting yields no results."""
+        normalized = (text or "").strip()
+        if not normalized:
+            return []
+
+        paragraphs = [
+            p.strip() for p in re.split(r"\n\s*\n+", normalized)
+            if p and p.strip()
+        ]
+
+        chunks: List[str] = []
+        for paragraph in paragraphs:
+            words = paragraph.split()
+            if not words:
+                continue
+            if len(words) <= max_words:
+                chunks.append(paragraph)
+                continue
+
+            start = 0
+            while start < len(words):
+                end = min(start + max_words, len(words))
+                chunk = " ".join(words[start:end]).strip()
+                if chunk:
+                    chunks.append(chunk)
+                start = end
+
+        return chunks[:200]
 
     async def get_document(self, document_id: UUID) -> Document:
         """Get document by ID."""
