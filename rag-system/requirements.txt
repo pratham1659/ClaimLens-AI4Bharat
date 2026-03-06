@@ -1,0 +1,7 @@
+boto3
+faiss-cpu
+numpy
+pypdf
+pickle5
+fastapi
+uvicorn

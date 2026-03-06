@@ -13,6 +13,8 @@
 *.env
 !.env.sample
 !.env.example
+.env.nainika
+env.sample
 
 # AWS credentials
 .aws/
@@ -43,6 +45,7 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+dump.rdb
 
 # Virtual environments
 venv/
@@ -208,3 +211,4 @@ terraform.tfvars
 *.pid.lock
 .grunt
 .lock-wscript
+storage/

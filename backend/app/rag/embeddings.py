@@ -102,17 +102,18 @@ class BedrockEmbeddingService(BaseEmbeddingService):
     """
 
     def __init__(self):
-        import boto3
         from app.core.config import settings
+        from app.retriever.embeddings import TitanEmbeddingModel
 
-        self.client = boto3.client(
-            "bedrock-runtime",
+        self.model = TitanEmbeddingModel(
             region_name=settings.AWS_REGION,
+            model_id=settings.BEDROCK_EMBEDDING_MODEL_ID,
+            max_retries=int(os.getenv("BEDROCK_EMBEDDING_MAX_RETRIES", "3")),
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
         self.model_id = settings.BEDROCK_EMBEDDING_MODEL_ID
-        self.embedding_dimension = 1536  # Titan embedding dimension
+        self.embedding_dimension = 1536
 
     async def generate_embedding(self, text: str) -> List[float]:
         """
@@ -124,34 +125,11 @@ class BedrockEmbeddingService(BaseEmbeddingService):
         Returns:
             Embedding vector
         """
-        import json
-        from botocore.exceptions import ClientError
-        from app.core.exceptions import AIServiceError
-
         try:
-            # Prepare request body
-            body = json.dumps({
-                "inputText": text[:8000]  # Titan max input length
-            })
-
-            response = self.client.invoke_model(
-                modelId=self.model_id,
-                body=body,
-                contentType="application/json",
-                accept="application/json"
-            )
-
-            response_body = json.loads(response["body"].read())
-            embedding = response_body.get("embedding", [])
-
-            if not embedding:
-                raise AIServiceError("Empty embedding returned from Bedrock")
-
-            return embedding
-
-        except ClientError as e:
+            return self.model.embed_text(text[:8000])
+        except Exception as e:
             logger.error(f"Bedrock embedding error: {str(e)}")
-            raise AIServiceError(f"Embedding generation failed: {str(e)}")
+            raise
 
     async def generate_embeddings_batch(
         self,
@@ -173,9 +151,12 @@ class BedrockEmbeddingService(BaseEmbeddingService):
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
 
-            for text in batch:
-                embedding = await self.generate_embedding(text)
-                embeddings.append(embedding)
+            try:
+                batch_embeddings = self.model.embed_batch([text[:8000] for text in batch])
+                embeddings.extend(batch_embeddings)
+            except Exception as e:
+                logger.error(f"Bedrock batch embedding error: {str(e)}")
+                raise
 
         return embeddings
 

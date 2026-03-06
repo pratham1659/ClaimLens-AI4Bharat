@@ -12,7 +12,7 @@ CONTAINER_PREFIX="claimlens"
 
 # Function to show help
 show_help() {
-    echo "🐳 $PROJECT_NAME Docker Management Script"
+    echo " $PROJECT_NAME Docker Management Script"
     echo "============================================"
     echo ""
     echo "Usage: ./docker-manage.sh [COMMAND] [OPTIONS]"
@@ -72,7 +72,7 @@ get_docker_compose_cmd() {
     elif command -v docker-compose &> /dev/null; then
         echo "docker-compose"
     else
-        echo "❌ Neither 'docker compose' nor 'docker-compose' is available"
+        echo " Neither 'docker compose' nor 'docker-compose' is available"
         echo ""
         echo "Please install Docker Compose:"
         echo "  macOS: brew install docker-compose"
@@ -90,7 +90,7 @@ check_docker_access() {
     local docker_error
     docker_error=$(docker info 2>&1 || true)
 
-    echo "❌ Cannot access Docker daemon"
+    echo " Cannot access Docker daemon"
     echo ""
 
     if echo "$docker_error" | grep -qiE "permission denied|/var/run/docker.sock"; then
@@ -135,12 +135,12 @@ resolve_redis_port_conflict() {
 
     if ! is_port_in_use "$configured_port"; then
         export REDIS_HOST_PORT="$configured_port"
-        echo "🔌 Redis host port: $REDIS_HOST_PORT"
+        echo " Redis host port: $REDIS_HOST_PORT"
         return 0
     fi
 
     if [[ -n "${REDIS_HOST_PORT+x}" ]]; then
-        echo "❌ Redis host port $configured_port is already in use"
+        echo " Redis host port $configured_port is already in use"
         echo "   Set REDIS_HOST_PORT to a free port and retry"
         exit 1
     fi
@@ -149,16 +149,16 @@ resolve_redis_port_conflict() {
         for fallback_port in $(seq 6380 6399); do
             if ! is_port_in_use "$fallback_port"; then
                 export REDIS_HOST_PORT="$fallback_port"
-                echo "⚠️  Port 6379 is busy; using Redis host port $REDIS_HOST_PORT"
+                echo "  Port 6379 is busy; using Redis host port $REDIS_HOST_PORT"
                 return 0
             fi
         done
 
-        echo "❌ Could not find a free Redis host port in range 6380-6399"
+        echo " Could not find a free Redis host port in range 6380-6399"
         exit 1
     fi
 
-    echo "❌ Redis host port 6379 is already in use"
+    echo " Redis host port 6379 is already in use"
     exit 1
 }
 
@@ -166,10 +166,10 @@ resolve_redis_port_conflict() {
 ensure_env_file() {
     if [[ ! -f ".env" ]]; then
         if [[ -f ".env.sample" ]]; then
-            echo "📋 Creating .env from .env.sample..."
+            echo " Creating .env from .env.sample..."
             cp .env.sample .env
         else
-            echo "❌ No .env or .env.sample file found"
+            echo " No .env or .env.sample file found"
             echo "   Please create .env.sample first"
             exit 1
         fi
@@ -181,16 +181,59 @@ load_env() {
     ensure_env_file
     
     if [[ -f ".env" ]]; then
-        echo "📋 Loading .env configuration..."
+        echo " Loading .env configuration..."
         set -a
         source .env
         set +a
     fi
 }
 
+# Function to clean stale container name conflicts and retry safely
+compose_up_with_conflict_recovery() {
+    local profile=$1
+    local compose_cmd=$2
+    local up_output
+    local attempt=0
+    local max_attempts=5
+
+    while [[ $attempt -lt $max_attempts ]]; do
+        if up_output=$(DOCKER_BUILDKIT=1 $compose_cmd --profile "$profile" up -d --build 2>&1); then
+            echo "$up_output"
+            return 0
+        fi
+
+        echo "$up_output"
+
+        local conflict_names
+        conflict_names=$(echo "$up_output" | sed -n 's/.*container name "\/\([^"]*\)" is already in use.*/\1/p' | sort -u)
+
+        if [[ -n "$conflict_names" ]]; then
+            attempt=$((attempt + 1))
+
+            echo ""
+            echo "  Found stale containers with conflicting names"
+
+            while IFS= read -r conflict_name; do
+                [[ -z "$conflict_name" ]] && continue
+                echo " Removing stale container: $conflict_name"
+                docker rm -f "$conflict_name" > /dev/null 2>&1 || true
+            done <<< "$conflict_names"
+
+            echo " Retrying startup ($attempt/$max_attempts)..."
+            continue
+        fi
+
+        return 1
+    done
+
+    echo ""
+    echo " Could not resolve container name conflicts after $max_attempts attempts"
+    return 1
+}
+
 # Function to start containers
 start_containers() {
-    echo "🐳 $PROJECT_NAME Docker Service Management Script"
+    echo " $PROJECT_NAME Docker Service Management Script"
     echo "===================================================="
     
     local MODE="local"
@@ -199,8 +242,8 @@ start_containers() {
     if [[ "$1" == "local" || "$1" == "dev" || "$1" == "development" || -z "$1" ]]; then
         MODE="local"
         PROFILE="local"
-        echo "📋 Mode: Local Development"
-        echo "   ✨ Features:"
+        echo " Mode: Local Development"
+        echo "    Features:"
         echo "      - Hot-reload enabled"
         echo "      - LocalStack for S3 emulation"
         echo "      - Mock LLM responses (no AWS costs)"
@@ -208,14 +251,14 @@ start_containers() {
     elif [[ "$1" == "prod" || "$1" == "production" ]]; then
         MODE="prod"
         PROFILE="prod"
-        echo "📋 Mode: Production"
-        echo "   🔒 Features:"
+        echo " Mode: Production"
+        echo "    Features:"
         echo "      - AWS Bedrock for LLM"
         echo "      - AWS S3 for storage"
         echo "      - External DB/Redis (AWS RDS/ElastiCache)"
         echo "      - Optimized builds"
     else
-        echo "❌ Invalid mode: $1"
+        echo " Invalid mode: $1"
         echo ""
         echo "Available modes: local, prod"
         show_help
@@ -226,7 +269,7 @@ start_containers() {
     
     # Get docker compose command
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
-    echo "📦 Using: $DOCKER_COMPOSE_CMD"
+    echo " Using: $DOCKER_COMPOSE_CMD"
 
     # Check docker daemon access
     check_docker_access
@@ -237,25 +280,29 @@ start_containers() {
     fi
     
     echo ""
-    echo "🚀 Building and starting services..."
+    echo " Building and starting services..."
     echo "   This may take a few minutes on first run..."
     
     # Start with the appropriate profile
-    DOCKER_BUILDKIT=1 $DOCKER_COMPOSE_CMD --profile "$PROFILE" up -d --build
+    if ! compose_up_with_conflict_recovery "$PROFILE" "$DOCKER_COMPOSE_CMD"; then
+        echo ""
+        echo " Failed to start services"
+        exit 1
+    fi
     
     echo ""
-    echo "⏳ Waiting for services to be healthy..."
+    echo " Waiting for services to be healthy..."
     sleep 10
     
     # Health checks based on mode
     if [[ "$MODE" == "local" ]]; then
         # Wait for postgres
-        echo "🔍 Checking PostgreSQL health..."
+        echo " Checking PostgreSQL health..."
         local max_retries=30
         local retry_count=0
         while [ $retry_count -lt $max_retries ]; do
             if $DOCKER_COMPOSE_CMD --profile "$PROFILE" exec -T db pg_isready -U ${DB_USER:-postgres} &> /dev/null; then
-                echo "✅ PostgreSQL is ready"
+                echo " PostgreSQL is ready"
                 break
             fi
             retry_count=$((retry_count + 1))
@@ -265,11 +312,11 @@ start_containers() {
         
         # Wait for Redis
         echo ""
-        echo "🔍 Checking Redis health..."
+        echo " Checking Redis health..."
         retry_count=0
         while [ $retry_count -lt $max_retries ]; do
             if $DOCKER_COMPOSE_CMD --profile "$PROFILE" exec -T redis redis-cli ping &> /dev/null; then
-                echo "✅ Redis is ready"
+                echo " Redis is ready"
                 break
             fi
             retry_count=$((retry_count + 1))
@@ -279,12 +326,12 @@ start_containers() {
         
         # Wait for LocalStack
         echo ""
-        echo "🔍 Checking LocalStack health..."
+        echo " Checking LocalStack health..."
         retry_count=0
         local max_localstack_retries=15
         while [ $retry_count -lt $max_localstack_retries ]; do
             if curl -sf http://localhost:4566/_localstack/health &> /dev/null; then
-                echo "✅ LocalStack is ready"
+                echo " LocalStack is ready"
                 break
             fi
             retry_count=$((retry_count + 1))
@@ -293,12 +340,12 @@ start_containers() {
         done
     else
         # Production - check backend health
-        echo "🔍 Checking Backend health..."
+        echo " Checking Backend health..."
         local retry_count=0
         local max_retries=30
         while [ $retry_count -lt $max_retries ]; do
             if curl -sf http://localhost:8000/health &> /dev/null; then
-                echo "✅ Backend is ready"
+                echo " Backend is ready"
                 break
             fi
             retry_count=$((retry_count + 1))
@@ -310,25 +357,25 @@ start_containers() {
     # Run database migrations (local mode only)
     if [[ "$MODE" == "local" ]]; then
         echo ""
-        echo "📊 Running database migrations..."
+        echo " Running database migrations..."
         if $DOCKER_COMPOSE_CMD --profile "$PROFILE" exec -T ${CONTAINER_PREFIX}-backend alembic upgrade head 2>/dev/null; then
-            echo "✅ Database migrations completed"
+            echo " Database migrations completed"
         else
-            echo "⚠️  Could not run migrations (backend may still be starting)"
+            echo "  Could not run migrations (backend may still be starting)"
             echo "   Run manually: ./docker-manage.sh migrate"
         fi
     fi
     
     # Show status
     echo ""
-    echo "📊 Service Status:"
+    echo " Service Status:"
     $DOCKER_COMPOSE_CMD --profile "$PROFILE" ps
     
     echo ""
-    echo "✅ Services started successfully in $MODE mode"
+    echo " Services started successfully in $MODE mode"
     
     echo ""
-    echo "🌐 Access Points:"
+    echo " Access Points:"
     if [[ "$MODE" == "local" ]]; then
         echo "   - Frontend (Dev):      http://localhost:3000"
         echo "   - Backend API:         http://localhost:8000"
@@ -338,17 +385,17 @@ start_containers() {
         echo "   - PostgreSQL:          localhost:5432"
         echo "   - Redis:               localhost:${REDIS_HOST_PORT:-6379}"
         echo ""
-        echo "🤖 LLM: Mock LLM (no AWS costs)"
+        echo " LLM: Mock LLM (no AWS costs)"
     else
         echo "   - Frontend:            http://localhost:80"
         echo "   - Backend API:         http://localhost:8000"
         echo "   - Swagger Docs:        http://localhost:8000/docs"
         echo ""
-        echo "🤖 LLM: AWS Bedrock (${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0})"
+        echo " LLM: AWS Bedrock (${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0})"
     fi
     
     echo ""
-    echo "📋 Useful Commands:"
+    echo " Useful Commands:"
     echo "   - View logs: ./docker-manage.sh logs"
     echo "   - Check status: ./docker-manage.sh status"
     echo "   - Stop services: ./docker-manage.sh stop"
@@ -356,7 +403,7 @@ start_containers() {
 
 # Function to stop containers
 stop_containers() {
-    echo "🛑 $PROJECT_NAME Docker Service Stop Script"
+    echo " $PROJECT_NAME Docker Service Stop Script"
     echo "=============================================="
     
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
@@ -365,23 +412,23 @@ stop_containers() {
     auto_backup_before_stop
     
     if [[ "$1" == "--volumes" ]]; then
-        echo "📋 Mode: Stop and remove volumes"
+        echo " Mode: Stop and remove volumes"
         echo ""
-        echo "🛑 Stopping services and removing volumes..."
+        echo " Stopping services and removing volumes..."
         $DOCKER_COMPOSE_CMD --profile local --profile prod down -v --remove-orphans
-        echo "✅ Services stopped and volumes removed"
+        echo " Services stopped and volumes removed"
     else
-        echo "📋 Mode: Stop services (preserve data)"
+        echo " Mode: Stop services (preserve data)"
         echo ""
-        echo "🛑 Stopping services..."
+        echo " Stopping services..."
         $DOCKER_COMPOSE_CMD --profile local --profile prod down --remove-orphans
-        echo "✅ Services stopped (volumes preserved)"
+        echo " Services stopped (volumes preserved)"
     fi
 }
 
 # Function to restart containers
 restart_containers() {
-    echo "🔄 $PROJECT_NAME Docker Service Restart Script"
+    echo " $PROJECT_NAME Docker Service Restart Script"
     echo "================================================="
     
     local MODE="local"
@@ -395,7 +442,7 @@ restart_containers() {
     # Auto-backup before restarting
     auto_backup_before_stop
     
-    echo "🛑 Stopping existing services..."
+    echo " Stopping existing services..."
     $DOCKER_COMPOSE_CMD --profile local --profile prod down --remove-orphans 2>/dev/null || true
     
     # Start with the specified mode
@@ -404,17 +451,17 @@ restart_containers() {
 
 # Function to show status
 show_status() {
-    echo "🐳 $PROJECT_NAME Docker Status"
+    echo " $PROJECT_NAME Docker Status"
     echo "================================="
     
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
     
     echo ""
-    echo "📊 Container Status:"
+    echo " Container Status:"
     $DOCKER_COMPOSE_CMD --profile local --profile prod ps
     
     echo ""
-    echo "📈 Container Resource Usage:"
+    echo " Container Resource Usage:"
     docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}" \
         $(docker ps --format '{{.Names}}' | grep $CONTAINER_PREFIX) 2>/dev/null || \
         echo "No $PROJECT_NAME containers running"
@@ -427,10 +474,10 @@ view_logs() {
     SERVICE=$1
     
     if [[ -z "$SERVICE" ]]; then
-        echo "📋 Viewing all logs (Ctrl+C to exit)..."
+        echo " Viewing all logs (Ctrl+C to exit)..."
         $DOCKER_COMPOSE_CMD --profile local --profile prod logs -f
     else
-        echo "📋 Viewing logs for: $SERVICE (Ctrl+C to exit)..."
+        echo " Viewing logs for: $SERVICE (Ctrl+C to exit)..."
         docker logs -f "${CONTAINER_PREFIX}-${SERVICE}" 2>/dev/null || \
             $DOCKER_COMPOSE_CMD --profile local --profile prod logs -f "$SERVICE"
     fi
@@ -441,7 +488,7 @@ exec_container() {
     SERVICE=${1:-backend}
     CONTAINER_NAME="${CONTAINER_PREFIX}-${SERVICE}"
     
-    echo "💻 Opening shell in: $SERVICE"
+    echo " Opening shell in: $SERVICE"
     
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         if [[ "$SERVICE" == "db" ]]; then
@@ -454,7 +501,7 @@ exec_container() {
             docker exec -it "$CONTAINER_NAME" bash 2>/dev/null || docker exec -it "$CONTAINER_NAME" sh
         fi
     else
-        echo "❌ Container $CONTAINER_NAME is not running"
+        echo " Container $CONTAINER_NAME is not running"
         echo "   Start the application first: ./docker-manage.sh start"
         exit 1
     fi
@@ -462,13 +509,13 @@ exec_container() {
 
 # Function to run migrations
 run_migrations() {
-    echo "📊 Running database migrations..."
+    echo " Running database migrations..."
     
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-backend$"; then
         docker exec -it ${CONTAINER_PREFIX}-backend alembic upgrade head
-        echo "✅ Migrations completed"
+        echo " Migrations completed"
     else
-        echo "❌ Backend container is not running"
+        echo " Backend container is not running"
         echo "   Start the application first: ./docker-manage.sh start"
         exit 1
     fi
@@ -476,14 +523,14 @@ run_migrations() {
 
 # Function to seed database
 seed_database() {
-    echo "🌱 Seeding database with sample data..."
+    echo " Seeding database with sample data..."
     
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-backend$"; then
         docker exec -it ${CONTAINER_PREFIX}-backend python -m scripts.seed_data 2>/dev/null || \
         docker exec -it ${CONTAINER_PREFIX}-backend python scripts/seed_data.py
-        echo "✅ Database seeded successfully"
+        echo " Database seeded successfully"
     else
-        echo "❌ Backend container is not running"
+        echo " Backend container is not running"
         exit 1
     fi
 }
@@ -493,7 +540,7 @@ backup_database() {
     BACKUP_DIR="./backups"
     mkdir -p "$BACKUP_DIR"
     
-    echo "💾 Backing up database..."
+    echo " Backing up database..."
     
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-db$"; then
         DB_NAME=${DB_NAME:-claimlens}
@@ -505,7 +552,7 @@ backup_database() {
         HAS_DATA=$(echo "$HAS_DATA" | tr -d '[:space:]')
         
         if [ "$HAS_DATA" -eq "0" ] 2>/dev/null; then
-            echo "⚠️  Database appears to be empty - skipping backup"
+            echo "  Database appears to be empty - skipping backup"
             return 0
         fi
         
@@ -517,7 +564,7 @@ backup_database() {
         
         if [ -f "$BACKUP_FILE" ]; then
             FILE_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-            echo "✅ Database backed up: $BACKUP_FILE ($FILE_SIZE)"
+            echo " Database backed up: $BACKUP_FILE ($FILE_SIZE)"
         fi
         
         # Keep only last 10 backups
@@ -525,7 +572,7 @@ backup_database() {
         ls -t ${CONTAINER_PREFIX}_backup_*.sql 2>/dev/null | tail -n +11 | xargs -r rm -- 2>/dev/null || true
         cd - > /dev/null
     else
-        echo "⚠️  PostgreSQL container is not running - skipping backup"
+        echo "  PostgreSQL container is not running - skipping backup"
         return 1
     fi
 }
@@ -533,7 +580,7 @@ backup_database() {
 # Function to auto-backup before stopping
 auto_backup_before_stop() {
     if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-db$"; then
-        echo "🔒 Auto-backup before stopping..."
+        echo " Auto-backup before stopping..."
         backup_database
         echo ""
     fi
@@ -543,10 +590,10 @@ auto_backup_before_stop() {
 restore_database() {
     BACKUP_DIR="./backups"
     
-    echo "🔄 Restoring database from backup..."
+    echo " Restoring database from backup..."
     
     if [[ ! -d "$BACKUP_DIR" ]]; then
-        echo "❌ Backup directory not found: $BACKUP_DIR"
+        echo " Backup directory not found: $BACKUP_DIR"
         exit 1
     fi
     
@@ -556,18 +603,18 @@ restore_database() {
         BACKUP_FILE=$(ls -t "$BACKUP_DIR"/${CONTAINER_PREFIX}_backup_*.sql 2>/dev/null | head -n 1)
         
         if [[ -z "$BACKUP_FILE" ]]; then
-            echo "❌ No backup files found"
+            echo " No backup files found"
             exit 1
         fi
         echo "Using latest backup: $BACKUP_FILE"
     elif [[ -n "$1" && "$1" != "--auto" ]]; then
         BACKUP_FILE="$1"
         if [[ ! -f "$BACKUP_FILE" ]]; then
-            echo "❌ Backup file not found: $BACKUP_FILE"
+            echo " Backup file not found: $BACKUP_FILE"
             exit 1
         fi
     else
-        echo "📁 Available backups:"
+        echo " Available backups:"
         ls -lht "$BACKUP_DIR"/${CONTAINER_PREFIX}_backup_*.sql 2>/dev/null | awk '{print NR". "$9" ("$5")"}'
         BACKUP_FILE=$(ls -t "$BACKUP_DIR"/${CONTAINER_PREFIX}_backup_*.sql 2>/dev/null | head -n 1)
         echo ""
@@ -575,18 +622,18 @@ restore_database() {
     fi
     
     echo ""
-    echo "⚠️  WARNING: This will replace ALL current database data!"
+    echo "  WARNING: This will replace ALL current database data!"
     
     if [[ "$AUTO_MODE" != "true" ]]; then
         read -p "Are you sure? (yes/no): " -r
         if [[ ! $REPLY =~ ^[Yy]es$ ]]; then
-            echo "❌ Restore cancelled"
+            echo " Restore cancelled"
             exit 0
         fi
     fi
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-db$"; then
-        echo "❌ PostgreSQL container is not running"
+        echo " PostgreSQL container is not running"
         exit 1
     fi
     
@@ -601,20 +648,20 @@ restore_database() {
     docker exec ${CONTAINER_PREFIX}-db pg_restore -U "$DB_USER" -d "$DB_NAME" /tmp/restore.dump 2>/dev/null || \
         docker exec -i ${CONTAINER_PREFIX}-db psql -U "$DB_USER" -d "$DB_NAME" < "$BACKUP_FILE"
     
-    echo "✅ Database restored from: $BACKUP_FILE"
+    echo " Database restored from: $BACKUP_FILE"
     
     if [[ "$AUTO_MODE" == "true" ]]; then
         docker restart ${CONTAINER_PREFIX}-backend
-        echo "✅ Backend restarted"
+        echo " Backend restarted"
     fi
 }
 
 # Function to clean everything
 clean_all() {
-    echo "🧹 $PROJECT_NAME Docker Clean Script"
+    echo " $PROJECT_NAME Docker Clean Script"
     echo "======================================="
     echo ""
-    echo "⚠️  WARNING: This will stop all containers and remove all data!"
+    echo "  WARNING: This will stop all containers and remove all data!"
     read -p "Are you sure? (yes/no): " -r
     
     if [[ $REPLY =~ ^[Yy]es$ ]]; then
@@ -622,11 +669,11 @@ clean_all() {
         
         auto_backup_before_stop
         
-        echo "🧹 Cleaning up..."
+        echo " Cleaning up..."
         $DOCKER_COMPOSE_CMD --profile local --profile prod down -v --remove-orphans
-        echo "✅ Cleanup completed"
+        echo " Cleanup completed"
     else
-        echo "❌ Cleanup cancelled"
+        echo " Cleanup cancelled"
     fi
 }
 
@@ -660,18 +707,18 @@ fix_postgres() {
     DB_NAME=${DB_NAME:-claimlens}
     DB_USER=${DB_USER:-postgres}
     
-    echo "🔧 Fixing postgres for database: $DB_NAME"
+    echo " Fixing postgres for database: $DB_NAME"
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-db$"; then
-        echo "❌ PostgreSQL container is not running"
+        echo " PostgreSQL container is not running"
         exit 1
     fi
     
     docker exec ${CONTAINER_PREFIX}-db psql -U "$DB_USER" -d "$DB_NAME" -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>/dev/null || true
     
-    echo "✅ Postgres setup completed"
+    echo " Postgres setup completed"
     echo ""
-    echo "🔍 Connection details:"
+    echo " Connection details:"
     echo "   - Host: localhost:5432"
     echo "   - Database: $DB_NAME"
     echo "   - User: $DB_USER"
@@ -679,10 +726,10 @@ fix_postgres() {
 
 # AWS/LocalStack Management Functions
 aws_setup() {
-    echo "🔧 AWS Configuration Setup"
+    echo " AWS Configuration Setup"
     echo "==========================="
     echo ""
-    echo "📋 Configuration File: .env"
+    echo " Configuration File: .env"
     echo ""
     
     if [[ -f ".env" ]]; then
@@ -692,39 +739,39 @@ aws_setup() {
         echo "   BEDROCK_ENABLED: ${BEDROCK_ENABLED:-false}"
         echo "   USE_LOCALSTACK: ${USE_LOCALSTACK:-true}"
     else
-        echo "   ❌ .env not found"
+        echo "    .env not found"
         echo "   Copy .env.sample to .env and configure"
     fi
     
     echo ""
-    echo "📋 Available LLM Models (AWS Bedrock):"
+    echo " Available LLM Models (AWS Bedrock):"
     echo "   - anthropic.claude-3-haiku-20240307-v1:0 (fast)"
     echo "   - anthropic.claude-3-sonnet-20240229-v1:0 (balanced)"
     echo "   - anthropic.claude-3-opus-20240229-v1:0 (most capable)"
 }
 
 s3_create_bucket() {
-    echo "📦 Creating S3 bucket in LocalStack..."
+    echo " Creating S3 bucket in LocalStack..."
     
     BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
-        echo "❌ LocalStack is not running"
+        echo " LocalStack is not running"
         echo "   Start with: ./docker-manage.sh start local"
         exit 1
     fi
     
     docker exec ${CONTAINER_PREFIX}-localstack awslocal s3 mb s3://${BUCKET_NAME} 2>/dev/null || true
-    echo "✅ S3 bucket created: $BUCKET_NAME"
+    echo " S3 bucket created: $BUCKET_NAME"
 }
 
 s3_list() {
-    echo "📦 Listing S3 bucket contents..."
+    echo " Listing S3 bucket contents..."
     
     BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
-        echo "❌ LocalStack is not running"
+        echo " LocalStack is not running"
         exit 1
     fi
     
@@ -793,7 +840,7 @@ case "$COMMAND" in
         show_help
         ;;
     *)
-        echo "❌ Unknown command: $COMMAND"
+        echo " Unknown command: $COMMAND"
         show_help
         ;;
 esac
