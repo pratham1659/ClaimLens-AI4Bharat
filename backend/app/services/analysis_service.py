@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.claim import Claim, ClaimStatus
 from app.models.document import Document, DocumentType, DocumentStatus
+from app.models.embedding import Embedding
 from app.models.analysis import AnalysisResult
 from app.models.user import User
 from app.schemas.analysis import AnalysisResponse
@@ -87,6 +88,9 @@ class AnalysisService:
                 if doc.document_type == DocumentType.INSURANCE_POLICY
                 and doc.status == DocumentStatus.PROCESSED
             ]
+
+            # Ensure policy embeddings exist (rebuild if legacy/empty)
+            await self._ensure_policy_embeddings(policy_docs)
             billing_doc = self._get_document_by_type(
                 claim.documents,
                 DocumentType.BILLING_DATA
@@ -121,6 +125,33 @@ class AnalysisService:
             claim.status = ClaimStatus.FAILED
             await self.db.flush()
             raise
+
+    async def _ensure_policy_embeddings(self, policy_docs: List[Document]) -> None:
+        """Ensure each processed policy document has embeddings for retrieval."""
+        for policy_doc in policy_docs:
+            existing_result = await self.db.execute(
+                select(Embedding)
+                .where(Embedding.document_id == policy_doc.id)
+                .limit(1)
+            )
+            existing_embedding = existing_result.scalar_one_or_none()
+            if existing_embedding:
+                continue
+
+            if not policy_doc.extracted_text or not policy_doc.extracted_text.strip():
+                logger.warning(
+                    f"Policy document {policy_doc.id} has no extracted text; cannot build embeddings"
+                )
+                continue
+
+            logger.info(
+                f"Rebuilding missing embeddings for processed policy document {policy_doc.id}"
+            )
+            await self.document_service._process_policy_document(
+                document=policy_doc,
+                text=policy_doc.extracted_text,
+            )
+            await self.db.flush()
 
     async def get_analysis_result(
         self,

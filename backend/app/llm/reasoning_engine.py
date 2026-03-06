@@ -95,6 +95,16 @@ class ReasoningEngine:
                 logger.error(f"LLM analysis failed: {str(e)}")
                 raise
 
+        if "debug_info" not in response:
+            response["debug_info"] = {
+                "grounded_analysis_used": self._should_use_grounded_analysis(),
+                "retrieved_clause_count": len(retrieved_clauses),
+                "matched_claim_terms": 0,
+                "total_claim_terms": 0,
+                "match_ratio": 0.0,
+                "model_id": settings.BEDROCK_MODEL_ID,
+            }
+
         # Parse and validate response
         analysis = self._parse_analysis_response(response)
 
@@ -263,6 +273,10 @@ class ReasoningEngine:
             f"identified {len(compliance_risks)} policy risks, and considered documentation completeness."
         )
 
+        match_ratio = 0.0
+        if claim_terms:
+            match_ratio = len(matched_terms) / len(claim_terms)
+
         return {
             "approval_score": round(score, 1),
             "approval_likelihood": likelihood,
@@ -271,6 +285,14 @@ class ReasoningEngine:
             "missing_documentation": list(dict.fromkeys(missing_documentation)),
             "recommendations": recommendations,
             "reasoning": reasoning,
+            "debug_info": {
+                "grounded_analysis_used": True,
+                "retrieved_clause_count": len(retrieved_clauses),
+                "matched_claim_terms": len(matched_terms),
+                "total_claim_terms": len(claim_terms),
+                "match_ratio": round(match_ratio, 3),
+                "model_id": settings.BEDROCK_MODEL_ID,
+            },
         }
 
     def _extract_claim_terms(self, medical_extraction: Dict[str, Any]) -> List[str]:

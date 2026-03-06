@@ -16,6 +16,17 @@ from app.core.exceptions import ResourceNotFoundError
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 
+def _to_analysis_response(result) -> AnalysisResponse:
+    payload = AnalysisResponse.model_validate(result).model_dump()
+
+    raw_response = getattr(result, "raw_response", None) or {}
+    debug_info = raw_response.get("debug_info") if isinstance(raw_response, dict) else None
+    if debug_info:
+        payload["debug_info"] = debug_info
+
+    return AnalysisResponse.model_validate(payload)
+
+
 @router.post(
     "/analyze",
     response_model=SingleResponse[AnalysisResponse],
@@ -41,7 +52,7 @@ async def analyze_claim(
     )
 
     return SingleResponse(
-        data=AnalysisResponse.model_validate(result),
+        data=_to_analysis_response(result),
         message="Analysis completed successfully"
     )
 
@@ -68,7 +79,7 @@ async def get_analysis(
         raise ResourceNotFoundError("Analysis", claim_id)
 
     return SingleResponse(
-        data=AnalysisResponse.model_validate(result)
+        data=_to_analysis_response(result)
     )
 
 
@@ -90,4 +101,4 @@ async def get_analysis_history(
         user=current_user
     )
 
-    return [AnalysisResponse.model_validate(r) for r in results]
+    return [_to_analysis_response(r) for r in results]

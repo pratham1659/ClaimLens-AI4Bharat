@@ -34,6 +34,16 @@ class Recommendation(BaseModel):
     rationale: str
 
 
+class AnalysisDebugInfo(BaseModel):
+    """Debug metadata to explain how approval scoring was produced."""
+    grounded_analysis_used: bool = False
+    retrieved_clause_count: int = 0
+    matched_claim_terms: int = 0
+    total_claim_terms: int = 0
+    match_ratio: float = Field(0.0, ge=0, le=1)
+    model_id: Optional[str] = None
+
+
 class AnalysisRequest(BaseModel):
     """Schema for analysis request."""
     claim_id: UUID = Field(validation_alias=AliasChoices("claim_id", "claimId"))
@@ -50,6 +60,7 @@ class AnalysisResponse(BaseModel):
     missing_documentation: List[str]
     recommendations: List[Recommendation]
     reasoning: str
+    debug_info: Optional[AnalysisDebugInfo] = None
     created_at: datetime
 
     class Config:

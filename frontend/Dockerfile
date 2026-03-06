@@ -43,8 +43,9 @@ CMD ["npm", "start"]
 # ============================================
 FROM base AS builder
 
-# Install dependencies
-RUN npm ci --only=production=false
+# Install dependencies (including devDependencies required for build)
+# Using npm install because this repository does not include package-lock.json
+RUN npm install
 
 # Copy source code
 COPY . .

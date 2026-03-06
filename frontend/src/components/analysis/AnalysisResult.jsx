@@ -184,6 +184,46 @@ export function AnalysisResult({ analysis }) {
           {analysis.reasoning}
         </p>
       </div>
+
+      {/* Debug Info */}
+      {analysis.debug_info && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Analysis Debug Info
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500">Grounded Analysis</p>
+              <p className="font-medium text-gray-900">
+                {analysis.debug_info.grounded_analysis_used ? "Yes" : "No"}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500">Retrieved Clauses</p>
+              <p className="font-medium text-gray-900">
+                {analysis.debug_info.retrieved_clause_count ?? 0}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500">Matched Claim Terms</p>
+              <p className="font-medium text-gray-900">
+                {(analysis.debug_info.matched_claim_terms ?? 0)} / {analysis.debug_info.total_claim_terms ?? 0}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500">Match Ratio</p>
+              <p className="font-medium text-gray-900">
+                {Math.round((analysis.debug_info.match_ratio ?? 0) * 100)}%
+              </p>
+            </div>
+          </div>
+          {analysis.debug_info.model_id && (
+            <p className="mt-3 text-xs text-gray-500 break-all">
+              Model ID: {analysis.debug_info.model_id}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
