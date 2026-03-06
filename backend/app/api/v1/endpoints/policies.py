@@ -9,11 +9,11 @@ This module provides:
 - Pre-indexed policy data queries (no upload required)
 """
 
-import os
 import logging
+import os
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Body
+from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from pydantic import BaseModel
 
 from app.schemas.document import DocumentResponse
@@ -26,6 +26,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db.session import get_db
 from app.models.document import Document
+from app.models.claim import Claim
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +171,8 @@ async def search_policies(
 async def process_policy_document(
     document_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    document_service: DocumentService = Depends(get_document_service)
 ):
     """
     Process an uploaded policy document:
@@ -179,18 +182,20 @@ async def process_policy_document(
     - Store in vector database
     """
     from app.models.embedding import Embedding
-    import os
 
-    # Get document
+    # Get document and verify ownership
     result = await db.execute(
-        select(Document).where(Document.id == document_id)
+        select(Document)
+        .join(Claim, Document.claim_id == Claim.id)
+        .where(Document.id == document_id)
+        .where(Claim.user_id == current_user.id)
     )
     document = result.scalar_one_or_none()
 
     if not document:
-        return {"success": False, "error": "Document not found"}
+        raise HTTPException(status_code=404, detail="Document not found")
 
-    # Check if already processed
+    # Return existing chunks if already processed
     existing = await db.execute(
         select(Embedding).where(Embedding.document_id == document_id).limit(1)
     )
@@ -210,55 +215,21 @@ async def process_policy_document(
             }
         }
 
-    # For Mock LLM mode, generate mock chunks
-    use_mock = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    # Real processing from uploaded document
+    await document_service.process_document(document_id)
 
-    if use_mock:
-        # Generate mock policy chunks for development
-        mock_chunks = [
-            "Coverage includes hospitalization expenses up to the sum insured amount.",
-            "Pre-existing conditions are covered after a waiting period of 2 years.",
-            "Emergency medical expenses are covered worldwide.",
-            "The policy excludes cosmetic surgery unless medically necessary.",
-            "Claims must be filed within 30 days of treatment completion.",
-            "Cashless facility is available at network hospitals only.",
-            "Room rent is limited to 1% of sum insured per day.",
-            "ICU charges are covered up to 2% of sum insured per day.",
-            "Pre and post hospitalization expenses covered for 30 and 60 days respectively.",
-            "Annual health check-up benefit included after first claim-free year."
-        ]
+    chunks_result = await db.execute(
+        select(Embedding)
+        .where(Embedding.document_id == document_id)
+        .order_by(Embedding.chunk_index)
+    )
+    chunks = chunks_result.scalars().all()
 
-        chunks_data = []
-        for idx, chunk_text in enumerate(mock_chunks):
-            # Create mock embedding (1536 dimensions for compatibility)
-            mock_embedding = [0.0] * 1536
-
-            embedding = Embedding(
-                document_id=document_id,
-                chunk_index=idx,
-                chunk_text=chunk_text,
-                embedding=mock_embedding,
-                metadata={"source": "mock", "page": idx + 1}
-            )
-            db.add(embedding)
-            chunks_data.append({"content": chunk_text, "index": idx})
-
-        await db.commit()
-
-        return {
-            "success": True,
-            "data": {
-                "document_id": str(document_id),
-                "chunks": chunks_data
-            }
-        }
-
-    # Real processing would go here for production
     return {
         "success": True,
         "data": {
             "document_id": str(document_id),
-            "chunks": []
+            "chunks": [{"content": c.chunk_text, "index": c.chunk_index} for c in chunks]
         }
     }
 
@@ -359,20 +330,28 @@ User question: {message}
 
 Please provide a helpful and accurate answer based on the policy context above."""
 
-    try:
-        response = await llm_client.invoke(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            max_tokens=1024,
-            temperature=0.3
-        )
+    use_grounded_fallback = (
+        os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+        or settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
+    )
 
-        answer = response.get(
-            "content", "I apologize, but I couldn't generate a response.")
-
-    except Exception as e:
-        logger.error(f"LLM invocation failed: {e}")
+    if use_grounded_fallback:
         answer = _generate_fallback_response(message, retrieved_chunks)
+    else:
+        try:
+            response = await llm_client.invoke(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=1024,
+                temperature=0.3
+            )
+
+            answer = response.get(
+                "content", "I apologize, but I couldn't generate a response.")
+
+        except Exception as e:
+            logger.error(f"LLM invocation failed: {e}")
+            answer = _generate_fallback_response(message, retrieved_chunks)
 
     # Format sources for response
     sources = [
@@ -444,17 +423,25 @@ User query: {query}
 
 Please provide a comprehensive answer based on the policy clauses above."""
 
-    try:
-        response = await llm_client.invoke(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            max_tokens=1024,
-            temperature=0.3
-        )
-        answer = response.get("content", "Unable to generate response.")
-    except Exception as e:
-        logger.error(f"LLM error: {e}")
+    use_grounded_fallback = (
+        os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+        or settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
+    )
+
+    if use_grounded_fallback:
         answer = _generate_fallback_response(query, retrieved_chunks)
+    else:
+        try:
+            response = await llm_client.invoke(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                max_tokens=1024,
+                temperature=0.3
+            )
+            answer = response.get("content", "Unable to generate response.")
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            answer = _generate_fallback_response(query, retrieved_chunks)
 
     return {
         "success": True,
@@ -547,50 +534,38 @@ def _format_chat_history(chat_history: List[dict]) -> str:
 
 
 def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
-    """Generate a fallback response when LLM is unavailable."""
-    query_lower = query.lower()
+    """Generate a document-grounded fallback response when LLM is unavailable."""
+    if not chunks:
+        return (
+            "I could not find relevant policy clauses for your question in the uploaded/pre-indexed data. "
+            "Please rephrase your question or upload a clearer insurance policy PDF."
+        )
 
-    # Extract relevant content from chunks
-    relevant_content = []
-    for chunk in chunks[:3]:
-        content = chunk.get("content", "")
-        if content:
-            relevant_content.append(content[:300])
+    query_terms = {term for term in query.lower().split() if len(term) > 3}
 
-    # Keyword-based response generation
-    if "coverage" in query_lower or "covered" in query_lower:
-        response = "Based on the policy documents, coverage includes:\n"
-        if relevant_content:
-            response += "\n".join([f"- {c[:200]}..." for c in relevant_content])
-        else:
-            response += "- Hospitalization expenses up to sum insured\n- Pre and post hospitalization care\n- Day care procedures"
+    scored_chunks = []
+    for chunk in chunks:
+        content = (chunk.get("content") or chunk.get("chunk_text") or "").strip()
+        if not content:
+            continue
+        lowered = content.lower()
+        term_hits = sum(1 for term in query_terms if term in lowered)
+        scored_chunks.append((term_hits, content))
 
-    elif "claim" in query_lower:
-        response = "Regarding claims:\n"
-        if relevant_content:
-            response += "\n".join([f"- {c[:200]}..." for c in relevant_content])
-        else:
-            response += "- Claims must be filed within specified timeframe\n- Required documents include bills, prescriptions, discharge summary"
+    scored_chunks.sort(key=lambda item: item[0], reverse=True)
+    top_contents = [content for _, content in scored_chunks[:3]]
 
-    elif "waiting" in query_lower or "pre-existing" in query_lower:
-        response = "Waiting period information:\n"
-        if relevant_content:
-            response += "\n".join([f"- {c[:200]}..." for c in relevant_content])
-        else:
-            response += "- Pre-existing conditions typically have 24-48 month waiting period\n- Specific diseases may have different waiting periods"
+    if not top_contents:
+        return (
+            "I found policy data, but I could not extract reliable supporting clauses for this query. "
+            "Please ask a more specific insurance question (for example, waiting period, exclusions, or claim timeline)."
+        )
 
-    elif "exclusion" in query_lower or "exclude" in query_lower:
-        response = "Policy exclusions:\n"
-        if relevant_content:
-            response += "\n".join([f"- {c[:200]}..." for c in relevant_content])
-        else:
-            response += "- Cosmetic procedures (unless medically necessary)\n- Self-inflicted injuries\n- War and nuclear risks"
+    bullets = "\n".join([f"- {content[:220].strip()}..." for content in top_contents])
 
-    else:
-        response = f"Here is relevant information from the policy documents about '{query}':\n"
-        if relevant_content:
-            response += "\n".join([f"• {c[:200]}..." for c in relevant_content])
-        else:
-            response += "Please ask specific questions about coverage, claims, waiting periods, or exclusions for detailed information."
-
-    return response
+    return (
+        "Based on the retrieved clauses from your policy document, here is the most relevant information:\n"
+        f"{bullets}\n\n"
+        "Suggested next step: verify these clause details against your exact treatment/claim scenario "
+        "(diagnosis, hospitalization dates, and submitted documents) before final submission."
+    )

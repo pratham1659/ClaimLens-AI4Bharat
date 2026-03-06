@@ -139,7 +139,23 @@ export function PolicyChatPage() {
       ]);
     } catch (err) {
       console.error("Upload error:", err);
-      setError(getErrorMessage(err, "Failed to upload and process document"));
+      const backendMessage = getErrorMessage(
+        err,
+        "Failed to upload and process document",
+      );
+
+      if (
+        backendMessage
+          .toLowerCase()
+          .includes("does not appear to be an insurance policy")
+      ) {
+        setError(
+          "Only insurance policy PDFs are accepted. Please upload a valid insurance policy document.",
+        );
+      } else {
+        setError(backendMessage);
+      }
+
       setUploading(false);
       setProcessing(false);
     }
@@ -387,6 +403,9 @@ export function PolicyChatPage() {
                       <Upload className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400 mx-auto" />
                       <p className="text-sm text-gray-600">
                         Drop a PDF here or tap to browse
+                      </p>
+                      <p className="text-xs text-amber-700 font-medium">
+                        Only insurance policy PDFs are accepted
                       </p>
                       <p className="text-xs text-gray-400">
                         Max file size: 50MB

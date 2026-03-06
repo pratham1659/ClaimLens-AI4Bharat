@@ -5,7 +5,8 @@ Document management endpoints.
 
 from typing import List, Optional
 from uuid import UUID, uuid4
-from fastapi import APIRouter, Depends, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, status, UploadFile, File, Form, HTTPException
+import logging
 
 from app.schemas.document import (
     DocumentResponse,
@@ -27,9 +28,28 @@ from app.db.session import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+from app.core.config import settings
+from app.ingestion.pdf_parser import PDFParser
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+logger = logging.getLogger(__name__)
+
+
+INSURANCE_POLICY_KEYWORDS = {
+    "insurance", "policy", "coverage", "claim", "sum insured",
+    "premium", "exclusion", "waiting period", "hospitalization",
+    "benefit", "deductible", "co-pay", "cashless", "network hospital",
+}
+
+
+def _looks_like_insurance_policy(text: str) -> bool:
+    normalized = (text or "").lower()
+    if len(normalized.strip()) < 200:
+        return False
+
+    matches = sum(1 for token in INSURANCE_POLICY_KEYWORDS if token in normalized)
+    return matches >= 3
 
 
 class UploadRequest(BaseModel):
@@ -213,7 +233,8 @@ async def upload_policy_document(
     file: UploadFile = File(...),
     document_type: str = Form(default="policy"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    document_service: DocumentService = Depends(get_document_service)
 ):
     """
     Upload a policy document directly for RAG processing.
@@ -221,11 +242,33 @@ async def upload_policy_document(
     """
     # Validate file type
     if not file.filename or not file.filename.lower().endswith('.pdf'):
-        return {"success": False, "error": "Only PDF files are supported"}
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     # Read file content
     content = await file.read()
     file_size = len(content)
+
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size exceeds maximum of {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+
+    # Insurance-only validation from extracted PDF text
+    parser = PDFParser()
+    extracted_text = await parser.extract_text(content)
+    if not extracted_text:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract text from PDF. Please upload a text-readable insurance policy document."
+        )
+
+    if not _looks_like_insurance_policy(extracted_text):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded PDF does not appear to be an insurance policy. Please upload an insurance policy document only."
+        )
 
     # Reuse or create a dedicated claim for policy chat uploads
     policy_claim_number = f"POLICY-CHAT-{current_user.id}"
@@ -258,12 +301,26 @@ async def upload_policy_document(
         file_size=file_size,
         content_type=file.content_type or "application/pdf",
         s3_key=f"policies/{doc_id}/{file.filename}",
-        status=DocumentStatus.UPLOADED
+        status=DocumentStatus.UPLOADED,
+        extracted_text=extracted_text
     )
 
     db.add(document)
     await db.commit()
     await db.refresh(document)
+
+    try:
+        document_service.s3_client.put_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=document.s3_key,
+            Body=content,
+            ContentType=document.content_type,
+        )
+    except Exception as e:
+        logger.error(f"Failed to upload policy file to S3 for document {document.id}: {e}")
+        await db.delete(document)
+        await db.commit()
+        raise HTTPException(status_code=500, detail="Failed to store uploaded document")
 
     return {
         "success": True,
