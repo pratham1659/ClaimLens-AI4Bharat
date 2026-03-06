@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.llm.bedrock_client import BedrockClient, get_llm_client
 from app.llm.prompts import (
@@ -18,6 +19,7 @@ from app.llm.prompts import (
 )
 from app.rag.retriever import create_rag_retriever
 from app.models.analysis import AnalysisResult, ApprovalLikelihood
+from app.models.embedding import Embedding
 from app.core.exceptions import AIServiceError
 from app.core.config import settings
 
@@ -64,6 +66,16 @@ class ReasoningEngine:
             top_k=15
         )
 
+        retrieval_fallback_used = False
+        claim_terms_for_fallback = self._extract_claim_terms(medical_extraction)
+        if not retrieved_clauses and policy_document_ids:
+            retrieved_clauses = await self._fallback_retrieve_from_embeddings(
+                policy_document_ids=policy_document_ids,
+                claim_terms=claim_terms_for_fallback,
+                top_k=15,
+            )
+            retrieval_fallback_used = len(retrieved_clauses) > 0
+
         # Build context
         policy_context = self.retriever.build_context(retrieved_clauses)
 
@@ -102,8 +114,11 @@ class ReasoningEngine:
                 "matched_claim_terms": 0,
                 "total_claim_terms": 0,
                 "match_ratio": 0.0,
+                "retrieval_fallback_used": retrieval_fallback_used,
                 "model_id": settings.BEDROCK_MODEL_ID,
             }
+        else:
+            response["debug_info"]["retrieval_fallback_used"] = retrieval_fallback_used
 
         # Parse and validate response
         analysis = self._parse_analysis_response(response)
@@ -165,7 +180,9 @@ class ReasoningEngine:
             avg_relevance = 0.0
 
         score = 20.0
-        score += min(20.0, len(clause_entries) * 1.5)
+        evidence_count_boost = min(20.0, len(clause_entries) * 1.5)
+        evidence_count_boost *= (0.25 + (0.75 * avg_relevance))
+        score += evidence_count_boost
         score += avg_relevance * 20.0
         score += match_ratio * 35.0
 
@@ -311,9 +328,65 @@ class ReasoningEngine:
                 "total_claim_terms": len(claim_terms),
                 "match_ratio": round(match_ratio, 3),
                 "avg_clause_relevance": round(avg_relevance, 3),
+                "retrieval_fallback_used": False,
                 "model_id": settings.BEDROCK_MODEL_ID,
             },
         }
+
+    async def _fallback_retrieve_from_embeddings(
+        self,
+        policy_document_ids: List[UUID],
+        claim_terms: List[str],
+        top_k: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """Fallback retrieval directly from stored embeddings when primary retriever returns nothing."""
+        result = await self.db.execute(
+            select(Embedding)
+            .where(Embedding.document_id.in_(policy_document_ids))
+            .order_by(Embedding.chunk_index)
+            .limit(500)
+        )
+        embeddings = list(result.scalars().all())
+
+        if not embeddings:
+            return []
+
+        scored_chunks: List[tuple[float, int, Embedding]] = []
+        for emb in embeddings:
+            text = str(emb.chunk_text or "").strip()
+            if not text:
+                continue
+
+            lowered = text.lower()
+            term_hits = sum(1 for term in claim_terms if term in lowered)
+            relevance_score = (term_hits / max(1, len(claim_terms))) if claim_terms else 0.0
+            scored_chunks.append((relevance_score, term_hits, emb))
+
+        if not scored_chunks:
+            return []
+
+        scored_chunks.sort(key=lambda item: (item[0], item[1]), reverse=True)
+
+        if any(score > 0 for score, _, _ in scored_chunks):
+            selected = [item for item in scored_chunks if item[0] > 0][:top_k]
+        else:
+            selected = scored_chunks[: min(top_k, 5)]
+
+        fallback_chunks: List[Dict[str, Any]] = []
+        for relevance, _, emb in selected:
+            fallback_chunks.append(
+                {
+                    "chunk_id": str(emb.id),
+                    "document_id": str(emb.document_id),
+                    "chunk_index": emb.chunk_index,
+                    "content": emb.chunk_text,
+                    "relevance_score": max(0.0, min(1.0, float(relevance))),
+                    "metadata": {},
+                    "source": "embedding_fallback",
+                }
+            )
+
+        return fallback_chunks
 
     def _extract_claim_terms(self, medical_extraction: Dict[str, Any]) -> List[str]:
         raw_terms: List[str] = []

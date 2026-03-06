@@ -42,6 +42,7 @@ class AnalysisDebugInfo(BaseModel):
     total_claim_terms: int = 0
     match_ratio: float = Field(0.0, ge=0, le=1)
     avg_clause_relevance: float = Field(0.0, ge=0, le=1)
+    retrieval_fallback_used: bool = False
     model_id: Optional[str] = None
 
 

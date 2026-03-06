@@ -5,8 +5,8 @@ Document service for file handling and processing.
 
 import logging
 import re
-from typing import Optional, List
-from uuid import UUID
+from typing import Optional, List, Dict, Any
+from uuid import UUID, uuid4
 import boto3
 from botocore.exceptions import ClientError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +76,7 @@ class DocumentService:
         except ClientError as error:
             code, message = self._extract_s3_error(error)
             missing_bucket_codes = {"404", "NoSuchBucket", "NotFound"}
+            access_denied_codes = {"403", "AccessDenied", "Forbidden"}
             if code in missing_bucket_codes and settings.USE_LOCALSTACK:
                 logger.warning(
                     "S3 bucket '%s' missing in localstack; attempting auto-create", bucket
@@ -102,6 +103,14 @@ class DocumentService:
                     f"Storage bucket '{bucket}' was not found in region '{settings.AWS_REGION}'"
                 )
 
+            if code in access_denied_codes:
+                logger.warning(
+                    "head_bucket access denied for bucket '%s' (code=%s); proceeding to object upload check",
+                    bucket,
+                    code,
+                )
+                return
+
             raise DocumentProcessingError(
                 f"Storage bucket access failed ({code}): {message}"
             )
@@ -118,7 +127,89 @@ class DocumentService:
             )
         except ClientError as error:
             code, message = self._extract_s3_error(error)
+            if code in {"403", "AccessDenied", "Forbidden"}:
+                raise DocumentProcessingError(
+                    "Storage upload failed (403): Access denied. "
+                    "Ensure IAM policy 'ClaimLensS3AccessPolicy' allows "
+                    f"s3:PutObject,s3:GetObject,s3:DeleteObject on bucket '{settings.S3_BUCKET_NAME}'"
+                )
             raise DocumentProcessingError(f"Storage upload failed ({code}): {message}")
+
+    def get_storage_diagnostics(self) -> Dict[str, Any]:
+        """Run lightweight S3 permission checks for current configuration."""
+        bucket = settings.S3_BUCKET_NAME
+        test_key = f"diagnostics/storage-check-{uuid4().hex}.txt"
+        payload = b"claimlens-storage-check"
+
+        checks: Dict[str, Dict[str, Any]] = {
+            "head_bucket": {"ok": False, "detail": None},
+            "put_object": {"ok": False, "detail": None},
+            "get_object": {"ok": False, "detail": None},
+            "delete_object": {"ok": False, "detail": None},
+        }
+
+        try:
+            self.s3_client.head_bucket(Bucket=bucket)
+            checks["head_bucket"] = {"ok": True, "detail": "Bucket is reachable"}
+        except ClientError as error:
+            code, message = self._extract_s3_error(error)
+            checks["head_bucket"] = {
+                "ok": False,
+                "detail": f"{code}: {message}",
+            }
+
+        try:
+            self.s3_client.put_object(
+                Bucket=bucket,
+                Key=test_key,
+                Body=payload,
+                ContentType="text/plain",
+            )
+            checks["put_object"] = {"ok": True, "detail": f"Uploaded test object: {test_key}"}
+        except ClientError as error:
+            code, message = self._extract_s3_error(error)
+            checks["put_object"] = {"ok": False, "detail": f"{code}: {message}"}
+
+        if checks["put_object"]["ok"]:
+            try:
+                response = self.s3_client.get_object(Bucket=bucket, Key=test_key)
+                body = response["Body"].read()
+                if body == payload:
+                    checks["get_object"] = {"ok": True, "detail": "Downloaded test object successfully"}
+                else:
+                    checks["get_object"] = {
+                        "ok": False,
+                        "detail": "Downloaded test object did not match uploaded payload",
+                    }
+            except ClientError as error:
+                code, message = self._extract_s3_error(error)
+                checks["get_object"] = {"ok": False, "detail": f"{code}: {message}"}
+
+            try:
+                self.s3_client.delete_object(Bucket=bucket, Key=test_key)
+                checks["delete_object"] = {"ok": True, "detail": "Deleted test object successfully"}
+            except ClientError as error:
+                code, message = self._extract_s3_error(error)
+                checks["delete_object"] = {"ok": False, "detail": f"{code}: {message}"}
+
+        object_ops_ok = (
+            checks["put_object"]["ok"]
+            and checks["get_object"]["ok"]
+            and checks["delete_object"]["ok"]
+        )
+
+        return {
+            "success": object_ops_ok,
+            "bucket": bucket,
+            "region": settings.AWS_REGION,
+            "use_localstack": settings.USE_LOCALSTACK,
+            "checks": checks,
+            "message": (
+                "Storage access is healthy"
+                if object_ops_ok
+                else "Storage access has permission/configuration issues"
+            ),
+        }
 
     async def generate_upload_url(
         self,
@@ -279,9 +370,9 @@ class DocumentService:
                 logger.warning(f"No fallback chunks extracted from document {document.id}")
                 return
 
-            embeddings = await self.embedding_service.generate_embeddings_batch(
+            embeddings = await self._generate_policy_embeddings(
                 texts=fallback_chunks,
-                batch_size=10
+                document_id=document.id,
             )
 
             vector_store = VectorStore(self.db)
@@ -298,9 +389,9 @@ class DocumentService:
 
         # Generate embeddings for each clause
         clause_texts = [clause.content for clause in clauses]
-        embeddings = await self.embedding_service.generate_embeddings_batch(
+        embeddings = await self._generate_policy_embeddings(
             texts=clause_texts,
-            batch_size=10
+            document_id=document.id,
         )
 
         # Store embeddings
@@ -313,6 +404,66 @@ class DocumentService:
 
         logger.info(
             f"Stored {len(embeddings)} embeddings for policy document {document.id}")
+
+    async def _generate_policy_embeddings(
+        self,
+        texts: List[str],
+        document_id: UUID,
+    ) -> List[List[float]]:
+        """Generate embeddings with resilient fallback chain for policy processing.
+
+        Order:
+        1) current configured embedding service
+        2) forced local embedding service
+        3) forced mock embedding service
+        """
+        if not texts:
+            return []
+
+        try:
+            embeddings = await self.embedding_service.generate_embeddings_batch(
+                texts=texts,
+                batch_size=10,
+            )
+            logger.info(
+                "Generated embeddings for document %s using mode=%s",
+                document_id,
+                getattr(self.embedding_service, "mode", "unknown"),
+            )
+            return embeddings
+        except Exception as primary_error:
+            logger.warning(
+                "Primary embedding generation failed for document %s (mode=%s): %s",
+                document_id,
+                getattr(self.embedding_service, "mode", "unknown"),
+                primary_error,
+            )
+
+        for fallback_mode in ["local", "mock"]:
+            try:
+                fallback_service = get_embedding_service(force_mode=fallback_mode)
+                embeddings = await fallback_service.generate_embeddings_batch(
+                    texts=texts,
+                    batch_size=10,
+                )
+                logger.warning(
+                    "Using fallback embedding mode=%s for document %s",
+                    fallback_mode,
+                    document_id,
+                )
+                self.embedding_service = fallback_service
+                return embeddings
+            except Exception as fallback_error:
+                logger.warning(
+                    "Fallback embedding mode=%s failed for document %s: %s",
+                    fallback_mode,
+                    document_id,
+                    fallback_error,
+                )
+
+        raise DocumentProcessingError(
+            "Embedding generation failed across all modes (bedrock/local/mock)"
+        )
 
     def _fallback_policy_chunks(self, text: str, max_words: int = 160) -> List[str]:
         """Fallback chunking for policy text when structured clause splitting yields no results."""

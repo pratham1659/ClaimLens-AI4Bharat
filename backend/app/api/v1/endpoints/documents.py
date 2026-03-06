@@ -96,6 +96,23 @@ async def get_upload_url(
     )
 
 
+@router.get(
+    "/storage-health",
+    response_model=dict,
+    summary="Check storage bucket permissions"
+)
+async def get_storage_health(
+    current_user: User = Depends(get_current_user),
+    document_service: DocumentService = Depends(get_document_service),
+):
+    """
+    Run storage diagnostics for current bucket configuration.
+
+    Checks: head bucket, put/get/delete test object.
+    """
+    return document_service.get_storage_diagnostics()
+
+
 @router.post(
     "/upload-direct",
     response_model=dict,
