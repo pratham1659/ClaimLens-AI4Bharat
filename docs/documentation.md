@@ -3,8 +3,8 @@
 This document defines the canonical engineering architecture for ClaimLens after structural hardening of:
 
 - Clause Splitter
-- Retriever (Dense + Cross-Encoder)
-- Evaluation Framework
+- Production Retriever (Titan + FAISS)
+- API Retrieval Flow
 
 This version supersedes earlier hybrid BM25 references and reflects the current production-aligned system.
 
@@ -239,78 +239,67 @@ Purpose:
 
 ---
 
-# 3. Retrieval Architecture (retriever.py)
+# 3. Retrieval Architecture
 
-ClaimLens uses a two-stage retrieval pipeline.
+ClaimLens uses a single-stage semantic retrieval pipeline in production.
 
-No weighted hybrid merging is used in current production.
+No BM25, no cross-encoder reranking, and no weighted score merging are used in the active path.
 
 ---
 
-## 3.1 Dense Retrieval (Candidate Generation)
+## 3.1 Embedding + Index
 
 Embedding model:
 
-    BAAI/bge-base-en-v1.5
+  amazon.titan-embed-text-v1
 
 Vector store:
 
-    FAISS
+  FAISS (IndexFlatL2, 1536 dimensions)
 
-Configuration:
+Storage:
 
-- Top-K retrieval = 40
+- Local index artifacts for runtime
+- S3-backed persistence for index bundles
 
 Purpose:
 
-- High semantic recall
-- Large candidate pool
-- No heuristic filtering
+- Deterministic semantic retrieval
+- Low operational cost
+- Simple production deployment
 
 ---
 
-## 3.2 Cross-Encoder Reranking
-
-Model:
-
-    BAAI/bge-reranker-base
+## 3.2 Retrieval Flow
 
 Process:
 
-- Query paired with each top-40 candidate
-- Cross-encoder scores each pair
-- Top 5 highest-scoring returned
+- Query embedding generated using Titan
+- FAISS similarity search over clause embeddings
+- Top-K clauses returned with metadata mapping
 
-Configuration:
+Output:
 
-- Rerank Top-K = 5
-
-Purpose:
-
-- Improve early precision
-- Boost MRR
-- Reduce ranking noise
+- Clause text
+- Clause metadata (insurer, source PDF, page, clause_id)
+- Similarity-ranked results
 
 ---
 
-## 3.3 Why No Weighted Hybrid?
-
-Previous documentation referenced hybrid BM25 weighting.
+## 3.3 Operational Notes
 
 Current production design:
 
-- Dense + Cross-Encoder only
-- No score merging
-- No manual weighting
-- No normalization complexity
+- Semantic-only retrieval path
+- No lexical/BM25 stage
+- No reranker stage
+- No score-fusion heuristics
 
 Reason:
 
-- Cross-encoder implicitly learns weighting
-- Simpler pipeline
-- More deterministic debugging
-
-Hybrid lexical retrieval remains future extensibility, not current implementation.
+- Fewer moving parts
+- Easier observability and debugging
+- Better cost predictability
 
 ---
 
@@ -319,16 +308,15 @@ Hybrid lexical retrieval remains future extensibility, not current implementatio
 - Structural correctness before semantics
 - No LLM involvement in retrieval
 - Retrieval is deterministic
-- Reranking refines but does not hallucinate
 - Evaluation-driven iteration
 
 ---
 
-# 4. Evaluation Framework (evaluator.py)
+# 4. Evaluation Status
 
-Evaluation measures retrieval only.
+Legacy in-repo evaluation modules under `backend/app/evaluation` were removed in the production cleanup pass.
 
-LLM generation is not evaluated here.
+Offline evaluation can be run as a separate workflow, but it is not part of the active runtime path.
 
 ---
 

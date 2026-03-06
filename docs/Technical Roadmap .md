@@ -2,7 +2,7 @@
 
 **Prototype Objective**
 
-ClaimLens AI is a clause-aware compliance reasoning engine that pre-validates medical insurance claims before submission. The system ingests discharge summaries, billing data, and policy PDFs; performs structured medical extraction; deterministically splits policy documents into hierarchical clauses; retrieves relevant clauses using a hybrid semantic \+ lexical retrieval pipeline; and generates explainable approval likelihood with risk analysis and corrective suggestions.
+ClaimLens AI is a clause-aware compliance reasoning engine that pre-validates medical insurance claims before submission. The system ingests discharge summaries, billing data, and policy PDFs; performs structured medical extraction; deterministically splits policy documents into hierarchical clauses; retrieves relevant clauses using semantic vector retrieval; and generates explainable approval likelihood with risk analysis and corrective suggestions.
 
 The prototype will be fully deployed and testable on AWS.
 
@@ -17,7 +17,7 @@ The prototype will be fully deployed and testable on AWS.
 
 * Deterministic clause-splitting engine
 
-* Hybrid retrieval engine (Vector \+ BM25 \+ reranking)
+* Semantic retrieval engine (Titan embeddings \+ FAISS)
 
 * LLM orchestration layer
 
@@ -56,7 +56,7 @@ We will enforce instance shutdown when idle and track daily usage to remain with
 
  **Day 1–2:** Infrastructure setup, ingestion pipeline, structured claim extraction.  
  **Day 3:** Hierarchical clause splitting with TOC filtering and metadata tagging.  
- **Day 4:** Hybrid retrieval system (dense \+ lexical \+ reranking).  
+ **Day 4:** Semantic retrieval system (Titan embeddings \+ FAISS).  
  **Day 5:** LLM-based compliance reasoning integration.  
  **Day 6:** Frontend integration and public AWS deployment.  
  **Day 7:** Testing, validation, optimization, and submission readiness.
@@ -78,21 +78,19 @@ Storage Architecture
 
 2\. Vector Embeddings  
 	•	Generated using Amazon Titan Embeddings (via Amazon Bedrock).  
-	•	Stored in Amazon Aurora PostgreSQL using the pgvector extension for scalable vector similarity search.
+	•	Stored in FAISS indexes with S3-backed persistence for index artifacts.
 
-Aurora enables:  
+FAISS \+ S3 enables:  
 	•	Efficient vector similarity queries  
-	•	Hybrid filtering using SQL \+ metadata  
-	•	Scalable relational storage for clause-level metadata
+	•	Simple deployment and recovery  
+	•	Low-cost storage for clause-level retrieval artifacts
 
 Processing Pipeline  
 	1\.	Policy PDFs uploaded to Amazon S3.  
 	2\.	Text extraction and clause-aware hierarchical splitting.  
 	3\.	Embeddings generated using Titan Embeddings (Bedrock).  
-	4\.	Embeddings stored in Aurora (pgvector) along with structured metadata.  
-	5\.	Hybrid retrieval using:  
-	•	Vector similarity search  
-	•	Keyword filtering  
+	4\.	Embeddings stored in FAISS index artifacts with metadata bundle.  
+	5\.	Semantic retrieval using vector similarity search.  
 	6\.	Retrieved clauses passed to reasoning layer.
 
 LLM Reasoning Layer  
@@ -114,27 +112,27 @@ The system is designed to be scalable, serverless-compatible, and production-rea
 
 24-Hour Goal
 
-Within the first 24 hours of receiving credits, we will deploy a production-ready AWS-native version of our hybrid RAG system.
+Within the first 24 hours of receiving credits, we will deploy a production-ready AWS-native version of our semantic RAG system.
 
 First Technical Milestone
 
 Deploy an end-to-end AWS pipeline:  
 	1\.	Store policy PDFs in Amazon S3.  
 	2\.	Generate embeddings using Amazon Titan Embeddings (Bedrock).  
-	3\.	Store embeddings in Amazon Aurora PostgreSQL with pgvector.  
-	4\.	Implement hybrid vector retrieval via Aurora.  
+	3\.	Store index artifacts and metadata in Amazon S3-backed FAISS bundle.  
+	4\.	Implement semantic vector retrieval via FAISS.  
 	5\.	Integrate Claude Haiku (Bedrock) for structured reasoning.  
 	6\.	Expose the system via an API Gateway endpoint.
 
 At the end of 24 hours, we will have:  
 	•	A live API endpoint  
-	•	Real policy documents indexed in Aurora  
+	•	Real policy documents indexed in FAISS  
 	•	Titan-based embeddings stored and searchable  
 	•	Claude Haiku producing structured JSON coverage decisions
 
 Deliverable:  
 A working cloud-hosted prototype answering real insurance queries with clause references.
 
-Within the first 24 hours of receiving credits, we will deploy an AWS-native version of our hybrid RAG system. We will store policy PDFs in Amazon S3, generate embeddings using Amazon Titan (Bedrock), and store those embeddings in Amazon Aurora PostgreSQL with pgvector for scalable vector search. We will implement hybrid retrieval within Aurora and integrate Claude Haiku (Bedrock) to perform structured legal reasoning over retrieved clauses. The system will be exposed through an API Gateway endpoint.
+Within the first 24 hours of receiving credits, we will deploy an AWS-native version of our semantic RAG system. We will store policy PDFs in Amazon S3, generate embeddings using Amazon Titan (Bedrock), and store vector index artifacts in a FAISS bundle persisted to S3 for scalable retrieval. We will implement semantic retrieval using FAISS and integrate Claude Haiku (Bedrock) to perform structured legal reasoning over retrieved clauses. The system will be exposed through an API Gateway endpoint.
 
 By the end of 24 hours, we will have a live cloud-hosted API that indexes real policy documents, performs semantic retrieval, and generates structured JSON coverage decisions with clause references.  
