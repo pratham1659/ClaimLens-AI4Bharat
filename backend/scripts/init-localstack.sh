@@ -4,7 +4,7 @@
 
 echo "Initializing LocalStack for ClaimLens..."
 
-BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
 
 # Wait for LocalStack to be ready
 sleep 2

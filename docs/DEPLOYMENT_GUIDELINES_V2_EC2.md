@@ -240,5 +240,5 @@ curl http://127.0.0.1:8001/health
 
 - Current `rag-system` code uses hardcoded defaults for:
   - region: `us-east-1`
-  - bucket: `claimlens-faiss-index`
+  - bucket: `claimlens-faiss-index-1`
 - Keep EC2 IAM and S3 bucket configuration aligned with these defaults unless you refactor to env-driven config.

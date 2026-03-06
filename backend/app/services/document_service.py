@@ -61,6 +61,65 @@ class DocumentService:
         self.clause_splitter = ClauseSplitter()
         self.embedding_service = get_embedding_service()
 
+    def _extract_s3_error(self, error: ClientError) -> tuple[str, str]:
+        payload = getattr(error, "response", {}) or {}
+        error_data = payload.get("Error", {}) or {}
+        code = str(error_data.get("Code", "UnknownError"))
+        message = str(error_data.get("Message", "S3 operation failed"))
+        return code, message
+
+    def _ensure_bucket_exists(self) -> None:
+        bucket = settings.S3_BUCKET_NAME
+        try:
+            self.s3_client.head_bucket(Bucket=bucket)
+            return
+        except ClientError as error:
+            code, message = self._extract_s3_error(error)
+            missing_bucket_codes = {"404", "NoSuchBucket", "NotFound"}
+            if code in missing_bucket_codes and settings.USE_LOCALSTACK:
+                logger.warning(
+                    "S3 bucket '%s' missing in localstack; attempting auto-create", bucket
+                )
+                try:
+                    create_params = {"Bucket": bucket}
+                    if settings.AWS_REGION and settings.AWS_REGION != "us-east-1":
+                        create_params["CreateBucketConfiguration"] = {
+                            "LocationConstraint": settings.AWS_REGION
+                        }
+                    self.s3_client.create_bucket(**create_params)
+                    logger.info("Created localstack S3 bucket '%s'", bucket)
+                    return
+                except ClientError as create_error:
+                    create_code, create_message = self._extract_s3_error(create_error)
+                    if create_code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+                        raise DocumentProcessingError(
+                            f"Storage bucket initialization failed ({create_code}): {create_message}"
+                        )
+                    return
+
+            if code in missing_bucket_codes:
+                raise DocumentProcessingError(
+                    f"Storage bucket '{bucket}' was not found in region '{settings.AWS_REGION}'"
+                )
+
+            raise DocumentProcessingError(
+                f"Storage bucket access failed ({code}): {message}"
+            )
+
+    def upload_bytes(self, s3_key: str, content: bytes, content_type: str) -> None:
+        """Upload bytes to S3 with robust storage diagnostics."""
+        self._ensure_bucket_exists()
+        try:
+            self.s3_client.put_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                Key=s3_key,
+                Body=content,
+                ContentType=content_type,
+            )
+        except ClientError as error:
+            code, message = self._extract_s3_error(error)
+            raise DocumentProcessingError(f"Storage upload failed ({code}): {message}")
+
     async def generate_upload_url(
         self,
         claim_id: UUID,

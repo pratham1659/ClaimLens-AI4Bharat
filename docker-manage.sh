@@ -224,6 +224,18 @@ load_env() {
                 fi
             fi
 
+            # Expand ${VAR} placeholders using already-loaded environment values
+            local guard=0
+            while [[ "$value" =~ \$\{([A-Za-z_][A-Za-z0-9_]*)\} ]]; do
+                local ref_key="${BASH_REMATCH[1]}"
+                local ref_value="${!ref_key}"
+                value="${value//\$\{$ref_key\}/$ref_value}"
+                guard=$((guard + 1))
+                if [[ $guard -gt 50 ]]; then
+                    break
+                fi
+            done
+
             # Validate key name
             if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
                 echo "   Skipping invalid env key on line $line_num: $key"
@@ -823,7 +835,7 @@ aws_setup() {
 s3_create_bucket() {
     echo " Creating S3 bucket in LocalStack..."
     
-    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
         echo " LocalStack is not running"
@@ -838,7 +850,7 @@ s3_create_bucket() {
 s3_list() {
     echo " Listing S3 bucket contents..."
     
-    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+    BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_PREFIX}-localstack$"; then
         echo " LocalStack is not running"

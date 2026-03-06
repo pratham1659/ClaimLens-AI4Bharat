@@ -119,7 +119,7 @@ curl -X POST http://localhost:8001/ingest
 
 ## 6) Operational Notes
 
-- `rag-system` currently uses `us-east-1` and S3 bucket defaults (`claimlens-faiss-index`) in code.
+- `rag-system` currently uses `us-east-1` and S3 bucket defaults (`claimlens-faiss-index-1`) in code.
 - Ensure EC2 IAM role (or env credentials) has:
   - `bedrock:InvokeModel`
   - `s3:GetObject`

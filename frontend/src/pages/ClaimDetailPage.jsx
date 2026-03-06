@@ -1,7 +1,7 @@
 // frontend/src/pages/ClaimDetailPage.jsx
 
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -37,10 +37,39 @@ export function ClaimDetailPage() {
 
   const [claim, setClaim] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [autoReanalyzing, setAutoReanalyzing] = useState(false);
+  const autoAnalyzedClaimsRef = useRef(new Set());
 
   useEffect(() => {
     loadClaimData();
   }, [claimId]);
+
+  useEffect(() => {
+    if (!claimId || loading || analysisLoading || analyzing) return;
+    if (autoAnalyzedClaimsRef.current.has(claimId)) return;
+
+    const hasProcessedDischargeSummary = documents.some(
+      (doc) =>
+        doc.document_type === "discharge_summary" && doc.status === "processed",
+    );
+    const hasProcessedInsurancePolicy = documents.some(
+      (doc) =>
+        doc.document_type === "insurance_policy" && doc.status === "processed",
+    );
+
+    if (!hasProcessedDischargeSummary || !hasProcessedInsurancePolicy) return;
+
+    autoAnalyzedClaimsRef.current.add(claimId);
+    setAutoReanalyzing(true);
+
+    analyzeClaim(claimId, { silent: true })
+      .catch(() => {
+        autoAnalyzedClaimsRef.current.delete(claimId);
+      })
+      .finally(() => {
+        setAutoReanalyzing(false);
+      });
+  }, [claimId, loading, analysisLoading, analyzing, documents, analyzeClaim]);
 
   const loadClaimData = async () => {
     setLoading(true);
@@ -112,13 +141,13 @@ export function ClaimDetailPage() {
 
         <button
           onClick={handleAnalyze}
-          disabled={analyzing || claim.status === "processing"}
+          disabled={analyzing || autoReanalyzing || claim.status === "processing"}
           className="btn-primary w-full sm:w-auto justify-center touch-manipulation"
         >
-          {analyzing ? (
+          {analyzing || autoReanalyzing ? (
             <>
               <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
-              Analyzing...
+              {autoReanalyzing ? "Refreshing score..." : "Analyzing..."}
             </>
           ) : (
             <>

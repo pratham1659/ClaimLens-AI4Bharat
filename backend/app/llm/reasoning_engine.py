@@ -140,21 +140,43 @@ class ReasoningEngine:
         billing_data: Dict[str, Any],
         retrieved_clauses: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        clause_texts = [str(chunk.get("content", "")) for chunk in retrieved_clauses if chunk.get("content")]
-        all_clause_text = "\n".join(clause_texts).lower()
+        clause_entries: List[Dict[str, Any]] = []
+        for chunk in retrieved_clauses:
+            content = str(chunk.get("content") or "").strip()
+            if not content:
+                continue
+            relevance_raw = chunk.get("relevance_score", 0.5)
+            try:
+                relevance = float(relevance_raw)
+            except (TypeError, ValueError):
+                relevance = 0.5
+            relevance = max(0.0, min(1.0, relevance))
+            clause_entries.append({"content": content, "relevance": relevance})
+
+        all_clause_text = "\n".join([entry["content"] for entry in clause_entries]).lower()
 
         claim_terms = self._extract_claim_terms(medical_extraction)
         matched_terms = [term for term in claim_terms if term in all_clause_text]
+        match_ratio = (len(matched_terms) / len(claim_terms)) if claim_terms else 0.0
 
-        score = 45.0
-        if retrieved_clauses:
-            score += min(20.0, len(retrieved_clauses) * 2.0)
+        if clause_entries:
+            avg_relevance = sum(entry["relevance"] for entry in clause_entries) / len(clause_entries)
         else:
-            score -= 20.0
+            avg_relevance = 0.0
 
-        if claim_terms:
-            term_match_ratio = len(matched_terms) / max(1, len(claim_terms))
-            score += term_match_ratio * 25.0
+        score = 20.0
+        score += min(20.0, len(clause_entries) * 1.5)
+        score += avg_relevance * 20.0
+        score += match_ratio * 35.0
+
+        relevant_clause_texts = [
+            entry["content"].lower()
+            for entry in clause_entries
+            if any(term in entry["content"].lower() for term in claim_terms)
+        ]
+        if not relevant_clause_texts:
+            relevant_clause_texts = [entry["content"].lower() for entry in clause_entries[:3]]
+        relevant_policy_text = "\n".join(relevant_clause_texts)
 
         risk_patterns = [
             ("pre-existing", "Pre-existing condition clauses may restrict coverage.", "high"),
@@ -165,14 +187,13 @@ class ReasoningEngine:
             ("deductible", "Deductible terms may apply before reimbursement.", "medium"),
             ("room rent", "Room rent sub-limits may impact reimbursable amount.", "medium"),
             ("sub-limit", "Sub-limit clauses may cap specific benefits.", "medium"),
-            ("claim", "Claim submission conditions should be validated.", "low"),
         ]
 
         compliance_risks: List[Dict[str, Any]] = []
         missing_documentation: List[str] = []
 
         for idx, (token, description, severity) in enumerate(risk_patterns, start=1):
-            if token in all_clause_text:
+            if token in relevant_policy_text:
                 compliance_risks.append(
                     {
                         "risk_id": f"risk_{idx}",
@@ -182,9 +203,11 @@ class ReasoningEngine:
                     }
                 )
 
-        severity_penalty = {"high": 10.0, "medium": 6.0, "low": 2.5}
+        severity_penalty = {"high": 4.5, "medium": 2.5, "low": 1.5}
+        total_penalty = 0.0
         for risk in compliance_risks:
-            score -= severity_penalty.get(risk["severity"], 4.0)
+            total_penalty += severity_penalty.get(risk["severity"], 2.0)
+        score -= min(18.0, total_penalty)
 
         total_amount = billing_data.get("total_amount")
         try:
@@ -273,10 +296,6 @@ class ReasoningEngine:
             f"identified {len(compliance_risks)} policy risks, and considered documentation completeness."
         )
 
-        match_ratio = 0.0
-        if claim_terms:
-            match_ratio = len(matched_terms) / len(claim_terms)
-
         return {
             "approval_score": round(score, 1),
             "approval_likelihood": likelihood,
@@ -291,36 +310,56 @@ class ReasoningEngine:
                 "matched_claim_terms": len(matched_terms),
                 "total_claim_terms": len(claim_terms),
                 "match_ratio": round(match_ratio, 3),
+                "avg_clause_relevance": round(avg_relevance, 3),
                 "model_id": settings.BEDROCK_MODEL_ID,
             },
         }
 
     def _extract_claim_terms(self, medical_extraction: Dict[str, Any]) -> List[str]:
-        terms: List[str] = []
+        raw_terms: List[str] = []
 
         for diagnosis in medical_extraction.get("diagnoses") or []:
-            description = str(diagnosis.get("description") or "").strip().lower()
-            if description:
-                terms.extend([piece for piece in description.split() if len(piece) > 3])
+            if isinstance(diagnosis, dict):
+                raw_terms.extend(self._tokenize_text(diagnosis.get("description")))
+            else:
+                raw_terms.extend(self._tokenize_text(diagnosis))
 
         for procedure in medical_extraction.get("procedures") or []:
-            description = str(procedure.get("description") or "").strip().lower()
-            if description:
-                terms.extend([piece for piece in description.split() if len(piece) > 3])
+            if isinstance(procedure, dict):
+                raw_terms.extend(self._tokenize_text(procedure.get("description")))
+            else:
+                raw_terms.extend(self._tokenize_text(procedure))
 
         for medication in (medical_extraction.get("medications") or [])[:8]:
-            name = str(medication.get("name") or "").strip().lower()
-            if name:
-                terms.extend([piece for piece in name.split() if len(piece) > 3])
+            if isinstance(medication, dict):
+                raw_terms.extend(self._tokenize_text(medication.get("name")))
+            else:
+                raw_terms.extend(self._tokenize_text(medication))
 
-        unique_terms = []
+        unique_terms: List[str] = []
         seen = set()
-        for term in terms:
+        stopwords = {
+            "patient", "treatment", "hospital", "medical", "doctor", "claim",
+            "therapy", "tablet", "capsule", "daily", "history", "normal",
+        }
+
+        for term in raw_terms:
+            if term in stopwords:
+                continue
             if term not in seen:
                 seen.add(term)
                 unique_terms.append(term)
 
-        return unique_terms[:25]
+        return unique_terms[:30]
+
+    def _tokenize_text(self, value: Any) -> List[str]:
+        text = str(value or "").strip().lower()
+        if not text:
+            return []
+
+        tokens = [piece for piece in text.replace("/", " ").replace("-", " ").split() if len(piece) >= 3]
+        cleaned = ["".join(ch for ch in token if ch.isalnum()) for token in tokens]
+        return [token for token in cleaned if len(token) >= 3]
 
     async def extract_medical_info(
         self,

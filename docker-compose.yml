@@ -71,7 +71,7 @@ services:
       - SERVICES=s3
       - DEBUG=1
       - PERSISTENCE=1
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
     volumes:
       - localstack_data:/var/lib/localstack
       - ./backend/scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh
@@ -154,7 +154,7 @@ services:
       - AWS_REGION=${AWS_REGION:-ap-south-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
       - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v1}
       - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v1}
     volumes:

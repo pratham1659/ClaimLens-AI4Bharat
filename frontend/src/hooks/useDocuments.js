@@ -19,37 +19,14 @@ export function useDocuments() {
     setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }));
 
     try {
-      let documentId;
-
-      // Preferred path: backend direct upload (avoids browser-to-S3 CORS issues)
-      try {
-        const directResponse = await documentsAPI.uploadDirect(
-          claimId,
-          documentType,
-          file,
-        );
-        documentId = directResponse.data.document_id;
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }));
-      } catch (directUploadError) {
-        // Fallback: presigned URL flow
-        const urlResponse = await documentsAPI.getUploadUrl({
-          claim_id: claimId,
-          document_type: documentType,
-          filename: file.name,
-          content_type: file.type || "application/pdf",
-          file_size: file.size,
-        });
-
-        const { document_id, upload_url } = urlResponse.data;
-        documentId = document_id;
-
-        await documentsAPI.uploadToS3(
-          upload_url,
-          file,
-          file.type || "application/pdf",
-        );
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }));
-      }
+      // Always use backend direct upload to avoid browser-to-S3 CORS/preflight issues
+      const directResponse = await documentsAPI.uploadDirect(
+        claimId,
+        documentType,
+        file,
+      );
+      const documentId = directResponse.data.document_id;
+      setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }));
 
       // Trigger processing
       await documentsAPI.process(documentId);
@@ -58,7 +35,14 @@ export function useDocuments() {
       toast.success(`${file.name} uploaded successfully`);
       return documentId;
     } catch (error) {
-      toast.error(getErrorMessage(error, `Failed to upload ${file.name}`));
+      const message = getErrorMessage(error, `Failed to upload ${file.name}`);
+      if (error?.response?.status === 404) {
+        toast.error(
+          "Direct upload endpoint not found. Restart backend with latest code and try again.",
+        );
+      } else {
+        toast.error(message);
+      }
       throw error;
     } finally {
       setUploading(false);

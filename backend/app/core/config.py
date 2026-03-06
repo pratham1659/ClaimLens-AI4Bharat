@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # S3 Configuration
     S3_BUCKET_NAME: str = Field(
-        default="claimlens-prod-documents-ap-south-1", description="S3 bucket for documents")
+        default="claimlens-faiss-index-1", description="S3 bucket for documents")
     S3_PRESIGNED_URL_EXPIRY: int = 3600
 
     # AWS Bedrock

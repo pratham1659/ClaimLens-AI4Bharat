@@ -13,15 +13,20 @@ export function useAnalysis() {
   const [analyzing, setAnalyzing] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const analyzeClaim = useCallback(async (claimId) => {
+  const analyzeClaim = useCallback(async (claimId, options = {}) => {
+    const { silent = false } = options;
     setAnalyzing(true);
     try {
       const response = await analysisAPI.analyze(claimId);
       setAnalysis(response.data.data);
-      toast.success("Analysis completed");
+      if (!silent) {
+        toast.success("Analysis completed");
+      }
       return response.data.data;
     } catch (error) {
-      toast.error(getErrorMessage(error, "Analysis failed"));
+      if (!silent) {
+        toast.error(getErrorMessage(error, "Analysis failed"));
+      }
       throw error;
     } finally {
       setAnalyzing(false);

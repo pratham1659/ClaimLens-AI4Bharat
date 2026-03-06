@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 from app.core.config import settings
+from app.core.exceptions import DocumentProcessingError
 from app.ingestion.pdf_parser import PDFParser
 
 
@@ -138,14 +139,17 @@ async def upload_document_direct(
     )
 
     try:
-        document_service.s3_client.put_object(
-            Bucket=settings.S3_BUCKET_NAME,
-            Key=document.s3_key,
-            Body=content,
-            ContentType=content_type,
+        document_service.upload_bytes(
+            s3_key=document.s3_key,
+            content=content,
+            content_type=content_type,
         )
         await document_service.db.commit()
         await document_service.db.refresh(document)
+    except DocumentProcessingError as e:
+        logger.error(f"Direct upload failed for document {document.id}: {e}")
+        await document_service.db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Direct upload failed for document {document.id}: {e}")
         await document_service.db.rollback()
@@ -374,12 +378,16 @@ async def upload_policy_document(
     await db.refresh(document)
 
     try:
-        document_service.s3_client.put_object(
-            Bucket=settings.S3_BUCKET_NAME,
-            Key=document.s3_key,
-            Body=content,
-            ContentType=document.content_type,
+        document_service.upload_bytes(
+            s3_key=document.s3_key,
+            content=content,
+            content_type=document.content_type,
         )
+    except DocumentProcessingError as e:
+        logger.error(f"Failed to upload policy file to storage for document {document.id}: {e}")
+        await db.delete(document)
+        await db.commit()
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to upload policy file to S3 for document {document.id}: {e}")
         await db.delete(document)

@@ -14,7 +14,7 @@ class Retriever:
         self.metadata_path = root_dir / "indexes" / "metadata.pkl"
 
         self.embedding_service = TitanEmbeddingService(region_name="us-east-1")
-        self.s3_client = S3IndexClient(bucket="claimlens-faiss-index", region_name="us-east-1")
+        self.s3_client = S3IndexClient(bucket="claimlens-faiss-index-1", region_name="us-east-1")
         self.faiss_store = FaissStore(
             index_path=self.index_path,
             metadata_path=self.metadata_path,
