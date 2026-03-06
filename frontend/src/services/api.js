@@ -115,6 +115,20 @@ export const claimsAPI = {
 
 // Documents API
 export const documentsAPI = {
+  uploadDirect: (claimId, documentType, file) => {
+    const formData = new FormData();
+    formData.append("claim_id", claimId);
+    formData.append("document_type", documentType);
+    formData.append("file", file);
+
+    return api.post("/documents/upload-direct", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+      timeout: 120000,
+    });
+  },
+
   getUploadUrl: (data) => api.post("/documents/upload-url", data),
 
   uploadToS3: async (uploadUrl, file, contentType) => {

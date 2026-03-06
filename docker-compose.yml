@@ -146,6 +146,8 @@ services:
       - DEBUG=false
       # Production mode - AWS Bedrock
       - USE_LOCALSTACK=false
+      - S3_ENDPOINT_URL=
+      - AWS_ENDPOINT_URL=
       - USE_MOCK_LLM=false
       - BEDROCK_ENABLED=true
       - EMBEDDING_MODE=bedrock

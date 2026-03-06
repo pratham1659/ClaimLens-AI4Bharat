@@ -37,7 +37,17 @@ class DocumentService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        endpoint_url = settings.S3_ENDPOINT_URL or settings.AWS_ENDPOINT_URL
+
+        endpoint_url = None
+        if settings.USE_LOCALSTACK:
+            endpoint_url = settings.S3_ENDPOINT_URL or settings.AWS_ENDPOINT_URL
+
+        logger.info(
+            "Initializing S3 client (use_localstack=%s, endpoint_url=%s)",
+            settings.USE_LOCALSTACK,
+            endpoint_url if endpoint_url else "aws-default",
+        )
+
         self.s3_client = boto3.client(
             "s3",
             region_name=settings.AWS_REGION,

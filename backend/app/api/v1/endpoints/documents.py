@@ -96,6 +96,70 @@ async def get_upload_url(
 
 
 @router.post(
+    "/upload-direct",
+    response_model=dict,
+    summary="Upload document directly via backend"
+)
+async def upload_document_direct(
+    claim_id: UUID = Form(...),
+    document_type: DocumentType = Form(...),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    document_service: DocumentService = Depends(get_document_service),
+    claim_service: ClaimService = Depends(get_claim_service),
+):
+    """
+    Upload document content through backend and store in S3 server-side.
+
+    This avoids browser-to-S3 CORS/preflight issues with presigned URLs.
+    """
+    await claim_service.get_claim(claim_id, current_user)
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    content = await file.read()
+    file_size = len(content)
+    content_type = file.content_type or "application/octet-stream"
+
+    max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if file_size > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File size exceeds maximum of {settings.MAX_UPLOAD_SIZE_MB}MB"
+        )
+
+    document, _ = await document_service.generate_upload_url(
+        claim_id=claim_id,
+        document_type=document_type,
+        filename=file.filename,
+        content_type=content_type,
+        file_size=file_size,
+    )
+
+    try:
+        document_service.s3_client.put_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=document.s3_key,
+            Body=content,
+            ContentType=content_type,
+        )
+        await document_service.db.commit()
+        await document_service.db.refresh(document)
+    except Exception as e:
+        logger.error(f"Direct upload failed for document {document.id}: {e}")
+        await document_service.db.rollback()
+        raise HTTPException(status_code=500, detail="Direct upload to storage failed")
+
+    return {
+        "success": True,
+        "document_id": str(document.id),
+        "filename": document.filename,
+        "status": document.status.value,
+    }
+
+
+@router.post(
     "/{document_id}/process",
     response_model=SingleResponse[DocumentResponse],
     summary="Process uploaded document"

@@ -182,9 +182,56 @@ load_env() {
     
     if [[ -f ".env" ]]; then
         echo " Loading .env configuration..."
-        set -a
-        source .env
-        set +a
+
+        local line
+        local line_num=0
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line_num=$((line_num + 1))
+
+            # Strip CRLF
+            line="${line%$'\r'}"
+
+            # Skip comments/empty lines
+            if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
+                continue
+            fi
+
+            # Support optional 'export '
+            line="${line#export }"
+
+            # Ignore malformed lines without '='
+            if [[ "$line" != *"="* ]]; then
+                echo "   Skipping malformed .env line $line_num: $line"
+                continue
+            fi
+
+            local key="${line%%=*}"
+            local value="${line#*=}"
+
+            # Trim whitespace around key/value
+            key="$(echo "$key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            value="$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+
+            # Remove matching surrounding quotes from value
+            if [[ ${#value} -ge 2 ]]; then
+                local first_char="${value:0:1}"
+                local last_char="${value: -1}"
+                if [[ "$first_char" == '"' && "$last_char" == '"' ]]; then
+                    value="${value:1:${#value}-2}"
+                elif [[ "$first_char" == "'" && "$last_char" == "'" ]]; then
+                    value="${value:1:${#value}-2}"
+                fi
+            fi
+
+            # Validate key name
+            if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+                echo "   Skipping invalid env key on line $line_num: $key"
+                continue
+            fi
+
+            export "$key=$value"
+        done < .env
     fi
 }
 
@@ -284,6 +331,16 @@ start_containers() {
             echo " DATABASE_URL is empty in .env"
             echo "   Set DATABASE_URL before starting production mode"
             exit 1
+        fi
+
+        if [[ "$USE_LOCALSTACK" == "true" ]]; then
+            echo " .env has USE_LOCALSTACK=true, but production mode disables it for backend"
+            echo "   This is okay, but if you run backend outside docker-compose prod, uploads may target LocalStack URLs."
+        fi
+
+        if [[ "$S3_ENDPOINT_URL" == *"localstack"* || "$S3_ENDPOINT_URL" == *":4566"* || "$AWS_ENDPOINT_URL" == *"localstack"* || "$AWS_ENDPOINT_URL" == *":4566"* ]]; then
+            echo " .env contains LocalStack endpoint URLs"
+            echo "   Production compose now clears these for backend-prod, but keep this in mind for non-compose runs."
         fi
 
         if [[ "$DATABASE_URL" == *"@db:"* ]]; then
