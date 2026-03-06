@@ -11,6 +11,7 @@ This module provides:
 
 import logging
 import os
+import re
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Body, HTTPException
@@ -21,6 +22,7 @@ from app.schemas.common import SingleResponse
 from app.models.document import DocumentType
 from app.models.user import User
 from app.services.document_service import DocumentService
+from app.services.response_formatter import generate_final_response
 from app.api.deps import get_document_service, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -529,10 +531,15 @@ def _format_chat_history(chat_history: List[dict]) -> str:
 def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     """Generate a document-grounded fallback response when LLM is unavailable."""
     if not chunks:
-        return (
-            "I couldn’t find matching policy clauses for your question. "
-            "Please ask with clear keywords like ambulance, dental, waiting period, or room rent, "
-            "or upload a clearer insurance policy PDF."
+        return generate_final_response(
+            query=query,
+            clauses=[],
+            coverage_explanation=(
+                "I could not find matching policy clauses for this question in the retrieved results."
+            ),
+            plain_language_interpretation=(
+                "the available policy text does not clearly answer this yet, so a more specific clause or cleaner document extract is needed"
+            ),
         )
 
     normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
@@ -594,19 +601,29 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     matched_contents = [content for score, _, content in scored_chunks if score > 0][:3]
 
     if not matched_contents:
-        return (
-            f"I checked your policy, but I couldn’t find clear clauses matching '{query.strip()}'. "
-            "Try asking in a more specific way, for example: "
-            "‘Is ambulance covered under hospitalization?’, ‘Is dental excluded?’, or ‘What is the waiting period?’"
+        fallback_clauses = [
+            (chunk.get("content") or chunk.get("chunk_text") or "").strip()
+            for chunk in chunks[:2]
+            if (chunk.get("content") or chunk.get("chunk_text") or "").strip()
+        ]
+        return generate_final_response(
+            query=query,
+            clauses=fallback_clauses,
+            coverage_explanation=(
+                "I reviewed the retrieved policy text, but it does not clearly match this question yet."
+            ),
+            plain_language_interpretation=(
+                "this usually means we need a more specific query or the exact clause section to confirm coverage confidently"
+            ),
         )
 
     matched_text = "\n".join(matched_contents).lower()
 
     liability_intent = "liability" in detected_intents
+    coverage_explanation = ""
+    plain_language_interpretation = ""
 
     if liability_intent:
-        import re
-
         amount_pattern = re.compile(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|[\d,]+\s*(?:lakhs?|lacs?|crores?)", re.IGNORECASE)
         detected_amounts = []
         for content in matched_contents:
@@ -619,30 +636,24 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
                 if normalized_amount not in unique_amounts:
                     unique_amounts.append(normalized_amount)
             amount_text = ", ".join(unique_amounts[:3])
-            short_answer = (
-                f"Short answer: based on the extracted clauses, the policy’s maximum insurer liability appears tied to these stated limits: {amount_text}. "
-                "This is still subject to deductibles, sub-limits, and exclusions."
+            coverage_explanation = (
+                "Based on the retrieved wording, the insurer’s maximum liability appears linked to the stated monetary limits in the policy terms."
+            )
+            plain_language_interpretation = (
+                f"the payable amount is typically capped by limits such as {amount_text}, and remains subject to deductibles, sub-limits, and exclusions"
             )
         else:
-            short_answer = (
-                "Short answer: the insurer’s maximum liability for a policy year is the total amount payable under the policy terms, "
-                "typically capped by the Sum Insured shown in the Policy Schedule, and reduced by deductibles/sub-limits/exclusions."
+            coverage_explanation = (
+                "The policy generally treats maximum yearly liability as the total payable amount within the policy limits."
             )
-
-        evidence_lines = []
-        for index, content in enumerate(matched_contents[:3], start=1):
-            snippet = " ".join(content.split())
-            if len(snippet) > 220:
-                snippet = f"{snippet[:220].rstrip()}..."
-            evidence_lines.append(f"{index}) {snippet}")
-
-        evidence_block = "\n".join(evidence_lines)
-
-        return (
-            f"{short_answer}\n\n"
-            "Here’s the policy wording I found:\n"
-            f"{evidence_block}\n\n"
-            "If you share the Sum Insured value from your Policy Schedule, I can map this to an exact yearly liability amount."
+            plain_language_interpretation = (
+                "this is usually capped by the Sum Insured in the policy schedule and adjusted by deductibles, sub-limits, and exclusions"
+            )
+        return generate_final_response(
+            query=query,
+            clauses=matched_contents,
+            coverage_explanation=coverage_explanation,
+            plain_language_interpretation=plain_language_interpretation,
         )
 
     negative_signals = ["not covered", "excluded", "exclusion", "not payable", "not admissible"]
@@ -653,80 +664,87 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
 
     if negative_hits > positive_hits:
         if is_boolean_question:
-            short_answer = (
-                "Short answer: likely no for this scenario, because the matched clauses indicate exclusions or restrictions."
+            coverage_explanation = (
+                "The retrieved wording suggests this scenario is likely not covered in its current form."
             )
         else:
-            short_answer = (
-                "Short answer: this looks restricted or not covered in the clauses I found, "
-                "unless there is a specific exception."
+            coverage_explanation = (
+                "The matched policy text indicates restrictions or exclusions for this situation."
             )
+        plain_language_interpretation = (
+            "coverage may still be possible only if a specific exception or optional benefit applies in your schedule"
+        )
     elif positive_hits > negative_hits:
         if is_boolean_question:
-            short_answer = (
-                "Short answer: likely yes, this appears covered based on the matched clauses, subject to limits/waiting period/exclusions."
+            coverage_explanation = (
+                "The matched policy wording indicates this is likely covered, subject to policy conditions."
             )
         else:
-            short_answer = (
-                "Short answer: this looks covered, but policy conditions still apply "
-                "(limits, waiting period, and exclusions)."
+            coverage_explanation = (
+                "The policy wording points toward coverage for this query within the stated terms."
             )
+        plain_language_interpretation = (
+            "the final payable amount still depends on limits, waiting periods, deductibles, and exclusions"
+        )
     else:
         if "definition" in detected_intents:
-            short_answer = (
-                "Short answer: this appears to be defined in the policy text below; wording should be read exactly as given in the clause."
+            coverage_explanation = (
+                "This question appears to be definition-based, and the policy wording provides the governing definition."
+            )
+            plain_language_interpretation = (
+                "the definition clause should be read exactly because eligibility decisions often depend on these precise terms"
             )
         elif "waiting" in detected_intents:
-            import re
-
             day_values = re.findall(r"\b(\d{1,3})\s*days?\b", matched_text)
             if day_values:
                 unique_days = []
                 for value in day_values:
                     if value not in unique_days:
                         unique_days.append(value)
-                short_answer = (
-                    f"Short answer: waiting/eligibility appears time-bound in the matched clauses (noted values: {', '.join(unique_days[:3])} days)."
+                coverage_explanation = (
+                    "The retrieved clauses indicate waiting-period based eligibility conditions."
+                )
+                plain_language_interpretation = (
+                    f"the timing conditions appear linked to values such as {', '.join(unique_days[:3])} days, which can affect when benefits become payable"
                 )
             else:
-                short_answer = (
-                    "Short answer: waiting period conditions apply, but the exact timeline needs confirmation from the specific clause wording."
+                coverage_explanation = (
+                    "The policy appears to apply waiting period conditions to this scenario."
+                )
+                plain_language_interpretation = (
+                    "the exact timeline is not fully clear from the top retrieved snippets and should be confirmed against the full clause"
                 )
         elif "temporal" in detected_intents:
-            import re
-
             day_values = re.findall(r"\b(\d{1,3})\s*days?\b", matched_text)
             if day_values:
                 unique_days = []
                 for value in day_values:
                     if value not in unique_days:
                         unique_days.append(value)
-                short_answer = (
-                    f"Short answer: this appears covered within specific time windows (detected: {', '.join(unique_days[:3])} days), subject to policy conditions."
+                coverage_explanation = (
+                    "The clause wording suggests this benefit is linked to specific pre/post hospitalization time windows."
+                )
+                plain_language_interpretation = (
+                    f"the applicable timeline appears to include values such as {', '.join(unique_days[:3])} days, subject to the policy conditions"
                 )
             else:
-                short_answer = (
-                    "Short answer: the policy seems to include pre/post hospitalization timing rules, but exact day limits are not clearly visible in top matches."
+                coverage_explanation = (
+                    "The policy likely includes timeline-based conditions for this benefit."
+                )
+                plain_language_interpretation = (
+                    "the exact day limits are not clearly visible in the top retrieved snippets and should be confirmed in the full wording"
                 )
         else:
-            short_answer = (
-                "Short answer: the wording is unclear for this exact question, "
-                "so coverage depends on conditions and exclusions."
+            coverage_explanation = (
+                "The retrieved text is relevant but does not conclusively confirm coverage for this exact scenario."
+            )
+            plain_language_interpretation = (
+                "coverage will depend on the exact wording, policy limits, exclusions, and your treatment context"
             )
 
-    evidence_lines = []
-    for index, content in enumerate(matched_contents[:3], start=1):
-        snippet = " ".join(content.split())
-        if len(snippet) > 220:
-            snippet = f"{snippet[:220].rstrip()}..."
-        evidence_lines.append(f"{index}) {snippet}")
-
-    evidence_block = "\n".join(evidence_lines)
-
-    return (
-        f"{short_answer}\n\n"
-        "Here’s what I found in your policy:\n"
-        f"{evidence_block}\n\n"
-        "Next step: share the exact treatment/procedure and hospitalization details, "
-        "and I’ll give you a clearer policy-based answer."
+    return generate_final_response(
+        query=query,
+        clauses=matched_contents,
+        coverage_explanation=coverage_explanation,
+        plain_language_interpretation=plain_language_interpretation,
     )
