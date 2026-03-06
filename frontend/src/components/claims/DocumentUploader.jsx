@@ -19,11 +19,6 @@ const documentTypes = {
     description: "Insurance policy document (PDF)",
     accept: { "application/pdf": [".pdf"] },
   },
-  billing_data: {
-    label: "Billing Data",
-    description: "Billing information (JSON)",
-    accept: { "application/json": [".json"] },
-  },
 };
 
 export function DocumentUploader({

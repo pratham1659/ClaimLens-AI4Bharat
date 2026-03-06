@@ -1,0 +1,182 @@
+# ClaimLens Root .dockerignore
+# =============================
+# Excludes files from Docker build context to speed up builds
+# and prevent sensitive data from being copied to images
+
+# ==============================
+# Git
+# ==============================
+.git
+.gitignore
+.gitattributes
+.github
+
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+.env.*
+*.env
+aws-credentials
+credentials.json
+.aws/
+
+# ==============================
+# Documentation
+# ==============================
+*.md
+!README.md
+docs/
+DOCKER.md
+LICENSE
+
+# ==============================
+# IDE & Editors
+# ==============================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+*.iml
+
+# ==============================
+# OS Generated
+# ==============================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ==============================
+# Python (not needed in context)
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.tox/
+.nox/
+
+# ==============================
+# Node.js
+# ==============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# ==============================
+# Build artifacts
+# ==============================
+build/
+dist/
+*.bundle.js
+*.bundle.js.map
+
+# ==============================
+# Logs
+# ==============================
+logs/
+*.log
+backend/logs/
+frontend/logs/
+
+# ==============================
+# Backups
+# ==============================
+backups/
+*.sql
+*.dump
+*.bak
+
+# ==============================
+# Models & Large Files
+# ==============================
+models/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.gguf
+*.ggml
+faiss_*/
+*.faiss
+.cache/
+
+# ==============================
+# Test files
+# ==============================
+tests/
+*_test.py
+test_*.py
+*.test.js
+*.spec.js
+coverage/
+
+# ==============================
+# Uploads & Temp
+# ==============================
+uploads/
+temp/
+tmp/
+*.tmp
+
+# ==============================
+# Certificates
+# ==============================
+*.pem
+*.key
+*.crt
+!backend/certs/*.crt
+!backend/certs/*.key
+
+# ==============================
+# Docker files (prevent nesting)
+# ==============================
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+docker-manage*.sh
+
+# ==============================
+# CloudFormation / Terraform
+# ==============================
+aws/
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# ==============================
+# Data files
+# ==============================
+data/
+*.pdf
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json

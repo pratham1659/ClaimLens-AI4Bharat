@@ -1,0 +1,106 @@
+# Backend .dockerignore
+# =====================
+# Excludes files from backend Docker build context
+
+# ==============================
+# Git
+# ==============================
+.git
+.gitignore
+
+# ==============================
+# Environment
+# ==============================
+.env
+.env.*
+*.env
+
+# ==============================
+# Python cache & bytecode
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==============================
+# Virtual environments
+# ==============================
+venv/
+.venv/
+ENV/
+env/
+.conda/
+
+# ==============================
+# Testing
+# ==============================
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.tox/
+.nox/
+tests/
+*_test.py
+test_*.py
+
+# ==============================
+# IDE
+# ==============================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ==============================
+# OS
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# Logs
+# ==============================
+logs/
+*.log
+
+# ==============================
+# Models (download at runtime or mount)
+# ==============================
+models/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.gguf
+.cache/
+
+# ==============================
+# FAISS indexes (mount at runtime)
+# ==============================
+faiss_*/
+*.faiss
+
+# ==============================
+# Data files
+# ==============================
+data/
+*.pdf
+
+# ==============================
+# Documentation
+# ==============================
+*.md
+!requirements.md
+
+# ==============================
+# Scripts not needed in image
+# ==============================
+scripts/run_*.sh

@@ -217,8 +217,13 @@ async def upload_policy_document(
 ):
     """
     Upload a policy document directly for RAG processing.
-    This endpoint is for standalone policy documents (not tied to a claim).
+    This saves the PDF to the data/ folder for indexing.
     """
+    import os
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     # Validate file type
     if not file.filename or not file.filename.lower().endswith('.pdf'):
         return {"success": False, "error": "Only PDF files are supported"}
@@ -226,6 +231,36 @@ async def upload_policy_document(
     # Read file content
     content = await file.read()
     file_size = len(content)
+
+    # Save file to data/ folder for indexing
+    # Check multiple possible data folder locations
+    data_folders = [
+        "data",
+        "/app/data",
+        "backend/data",
+    ]
+
+    data_folder = None
+    for folder in data_folders:
+        if os.path.exists(folder) and os.path.isdir(folder):
+            data_folder = folder
+            break
+
+    if not data_folder:
+        # Create data folder if none exists
+        data_folder = "data"
+        os.makedirs(data_folder, exist_ok=True)
+        logger.info(f"Created data folder at: {data_folder}")
+
+    # Save the PDF file
+    file_path = os.path.join(data_folder, file.filename)
+    try:
+        with open(file_path, "wb") as f:
+            f.write(content)
+        logger.info(f"Saved policy PDF to: {file_path}")
+    except Exception as e:
+        logger.error(f"Failed to save PDF file: {e}")
+        return {"success": False, "error": f"Failed to save file: {str(e)}"}
 
     # Reuse or create a dedicated claim for policy chat uploads
     policy_claim_number = f"POLICY-CHAT-{current_user.id}"
@@ -243,7 +278,8 @@ async def upload_policy_document(
             claim_number=policy_claim_number,
             patient_name="Policy Chat Upload",
             status=ClaimStatus.PENDING,
-            claim_metadata={"system_generated": True, "purpose": "policy_chat_upload"}
+            claim_metadata={"system_generated": True,
+                            "purpose": "policy_chat_upload"}
         )
         db.add(policy_claim)
         await db.flush()
@@ -271,6 +307,8 @@ async def upload_policy_document(
             "id": str(document.id),
             "filename": document.filename,
             "file_size": document.file_size,
-            "status": "uploaded"
-        }
+            "status": "uploaded",
+            "saved_to": file_path
+        },
+        "message": f"File saved to {file_path}. Run 'Build Index' to include in search."
     }

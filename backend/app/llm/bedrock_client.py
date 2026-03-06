@@ -1,11 +1,12 @@
 # backend/app/llm/bedrock_client.py
 """
-LLM client supporting both AWS Bedrock (production) and Mock (local development).
+LLM client supporting AWS Bedrock (production), Ollama (local AI), and Mock (local development).
 """
 
 import os
 import logging
 import json
+import httpx
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 
@@ -82,26 +83,121 @@ class MockLLMClient(BaseLLMClient):
         max_tokens: int = 4096
     ) -> Dict[str, Any]:
         """
-        Return mock JSON response for development.
+        Invoke LLM expecting JSON output - delegates to invoke and parses JSON.
         """
-        # Check if this is a compliance analysis request
-        if "compliance" in prompt.lower() or "analysis" in prompt.lower():
-            return self._generate_mock_analysis_response(prompt)
+        response = await self.invoke(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=0.0  # Lower temperature for structured output
+        )
 
-        # Check if this is a medical extraction request
-        if "medical" in prompt.lower() or "extraction" in prompt.lower():
-            return self._generate_mock_medical_extraction(prompt)
+        content = response["content"]
 
-        # Default JSON response
-        return {
-            "status": "success",
-            "message": "Mock response generated for development",
-            "data": {}
-        }
+        # Extract JSON from response
+        try:
+            # Try to find JSON in the response
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+
+            if json_start != -1 and json_end > json_start:
+                json_str = content[json_start:json_end]
+                return json.loads(json_str)
+
+            # Try parsing entire content as JSON
+            return json.loads(content)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {str(e)}")
+            logger.debug(f"Raw response: {content}")
+            raise AIServiceError(f"Invalid JSON response from LLM: {str(e)}")
 
     def _generate_mock_response(self, prompt: str, system_prompt: Optional[str]) -> str:
-        """Generate contextual mock response."""
+        """Generate contextual mock response - returns JSON string for analysis requests."""
         prompt_lower = prompt.lower()
+
+        # For compliance/analysis requests, return JSON formatted response
+        if "compliance" in prompt_lower or "analysis" in prompt_lower:
+            return json.dumps({
+                "approval_score": 78.5,
+                "approval_likelihood": "high",
+                "compliance_risks": [
+                    {
+                        "risk": "Room rent exceeds standard limit",
+                        "severity": "low",
+                        "mitigation": "Verify actual room category against policy terms"
+                    },
+                    {
+                        "risk": "Pre-existing condition waiting period",
+                        "severity": "medium",
+                        "mitigation": "Confirm policy inception date and condition history"
+                    }
+                ],
+                "clause_references": [
+                    {
+                        "clause_id": "HC-001",
+                        "content": "Hospitalization coverage up to sum insured",
+                        "relevance": "high"
+                    },
+                    {
+                        "clause_id": "RM-002",
+                        "content": "Room rent limited to 1% of sum insured per day",
+                        "relevance": "high"
+                    },
+                    {
+                        "clause_id": "PE-003",
+                        "content": "Pre-existing conditions covered after 2 year waiting period",
+                        "relevance": "medium"
+                    }
+                ],
+                "missing_documentation": [
+                    "Pre-authorization form (if applicable)",
+                    "Previous medical records for pre-existing conditions"
+                ],
+                "recommendations": [
+                    "Verify room category matches policy entitlement",
+                    "Confirm treatment dates fall within policy period",
+                    "Check if any procedures require pre-authorization"
+                ],
+                "reasoning": (
+                    "The claim demonstrates good alignment with policy coverage terms. "
+                    "The primary diagnosis and treatment procedures are standard covered benefits. "
+                    "Minor concerns exist around room rent limits and pre-existing condition verification. "
+                    "With proper documentation, this claim has a high likelihood of approval."
+                )
+            }, indent=2)
+
+        # For medical extraction requests, return JSON formatted response
+        if "medical" in prompt_lower or "extraction" in prompt_lower:
+            return json.dumps({
+                "patient_info": {
+                    "name": "Test Patient",
+                    "age": 45,
+                    "gender": "Male"
+                },
+                "diagnoses": [
+                    {
+                        "description": "Acute Appendicitis",
+                        "icd_code": "K35.80",
+                        "is_primary": True
+                    }
+                ],
+                "procedures": [
+                    {
+                        "description": "Laparoscopic Appendectomy",
+                        "cpt_code": "44970",
+                        "date": "2024-01-15"
+                    }
+                ],
+                "medications": [
+                    {"name": "Ceftriaxone", "dosage": "1g IV"},
+                    {"name": "Metronidazole", "dosage": "500mg IV"}
+                ],
+                "admission_date": "2024-01-14",
+                "discharge_date": "2024-01-16",
+                "hospital_name": "Test Medical Center",
+                "attending_physician": "Dr. Test Physician"
+            }, indent=2)
 
         if "coverage" in prompt_lower or "policy" in prompt_lower:
             return (
@@ -126,88 +222,125 @@ class MockLLMClient(BaseLLMClient):
             "The mock response simulates realistic AI analysis behavior."
         )
 
-    def _generate_mock_analysis_response(self, prompt: str) -> Dict[str, Any]:
-        """Generate mock compliance analysis response."""
-        return {
-            "approval_score": 78.5,
-            "approval_likelihood": "high",
-            "compliance_risks": [
-                {
-                    "risk": "Room rent exceeds standard limit",
-                    "severity": "low",
-                    "mitigation": "Verify actual room category against policy terms"
-                },
-                {
-                    "risk": "Pre-existing condition waiting period",
-                    "severity": "medium",
-                    "mitigation": "Confirm policy inception date and condition history"
-                }
-            ],
-            "clause_references": [
-                {
-                    "clause_id": "HC-001",
-                    "content": "Hospitalization coverage up to sum insured",
-                    "relevance": "high"
-                },
-                {
-                    "clause_id": "RM-002",
-                    "content": "Room rent limited to 1% of sum insured per day",
-                    "relevance": "high"
-                },
-                {
-                    "clause_id": "PE-003",
-                    "content": "Pre-existing conditions covered after 2 year waiting period",
-                    "relevance": "medium"
-                }
-            ],
-            "missing_documentation": [
-                "Pre-authorization form (if applicable)",
-                "Previous medical records for pre-existing conditions"
-            ],
-            "recommendations": [
-                "Verify room category matches policy entitlement",
-                "Confirm treatment dates fall within policy period",
-                "Check if any procedures require pre-authorization"
-            ],
-            "reasoning": (
-                "The claim demonstrates good alignment with policy coverage terms. "
-                "The primary diagnosis and treatment procedures are standard covered benefits. "
-                "Minor concerns exist around room rent limits and pre-existing condition verification. "
-                "With proper documentation, this claim has a high likelihood of approval."
-            )
-        }
 
-    def _generate_mock_medical_extraction(self, prompt: str) -> Dict[str, Any]:
-        """Generate mock medical extraction response."""
-        return {
-            "patient_info": {
-                "name": "Test Patient",
-                "age": 45,
-                "gender": "Male"
-            },
-            "diagnoses": [
-                {
-                    "description": "Acute Appendicitis",
-                    "icd_code": "K35.80",
-                    "is_primary": True
+class OllamaClient(BaseLLMClient):
+    """
+    Client for local Ollama server - real AI responses without AWS costs.
+    """
+
+    def __init__(self):
+        self.host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        self.model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+        logger.info(
+            f"Initialized OllamaClient with host: {self.host}, model: {self.model}")
+
+    async def invoke(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.1,
+        top_p: float = 0.9
+    ) -> Dict[str, Any]:
+        """
+        Invoke Ollama model with a prompt.
+
+        Args:
+            prompt: User prompt
+            system_prompt: Optional system prompt
+            max_tokens: Maximum response tokens
+            temperature: Sampling temperature
+            top_p: Top-p sampling parameter
+
+        Returns:
+            Model response
+        """
+        try:
+            url = f"{self.host}/api/generate"
+
+            payload = {
+                "model": self.model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "top_p": top_p,
+                    "num_predict": max_tokens
                 }
-            ],
-            "procedures": [
-                {
-                    "description": "Laparoscopic Appendectomy",
-                    "cpt_code": "44970",
-                    "date": "2024-01-15"
+            }
+
+            if system_prompt:
+                payload["system"] = system_prompt
+
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                result = response.json()
+
+            return {
+                "content": result.get("response", ""),
+                "stop_reason": "stop" if result.get("done") else "length",
+                "usage": {
+                    "input_tokens": result.get("prompt_eval_count", 0),
+                    "output_tokens": result.get("eval_count", 0)
                 }
-            ],
-            "medications": [
-                {"name": "Ceftriaxone", "dosage": "1g IV"},
-                {"name": "Metronidazole", "dosage": "500mg IV"}
-            ],
-            "admission_date": "2024-01-14",
-            "discharge_date": "2024-01-16",
-            "hospital_name": "Test Medical Center",
-            "attending_physician": "Dr. Test Physician"
-        }
+            }
+
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Ollama HTTP error: {str(e)}")
+            raise AIServiceError(f"Ollama invocation failed: {str(e)}")
+        except httpx.RequestError as e:
+            logger.error(f"Ollama connection error: {str(e)}")
+            raise AIServiceError(
+                f"Failed to connect to Ollama: {str(e)}. Make sure Ollama is running.")
+        except Exception as e:
+            logger.error(f"Ollama error: {str(e)}")
+            raise AIServiceError(f"Ollama invocation failed: {str(e)}")
+
+    async def invoke_with_json_output(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: int = 4096
+    ) -> Dict[str, Any]:
+        """
+        Invoke model expecting JSON output.
+        """
+        # Add JSON instruction to the prompt
+        json_prompt = prompt + \
+            "\n\nIMPORTANT: Respond with valid JSON only. No additional text or explanation."
+
+        if system_prompt:
+            system_prompt = system_prompt + "\n\nYou must respond with valid JSON only."
+        else:
+            system_prompt = "You must respond with valid JSON only."
+
+        response = await self.invoke(
+            prompt=json_prompt,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=0.0  # Lower temperature for structured output
+        )
+
+        content = response["content"]
+
+        # Extract JSON from response
+        try:
+            # Try to find JSON in the response
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+
+            if json_start != -1 and json_end > json_start:
+                json_str = content[json_start:json_end]
+                return json.loads(json_str)
+
+            # Try parsing entire content as JSON
+            return json.loads(content)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {str(e)}")
+            logger.debug(f"Raw response: {content}")
+            raise AIServiceError(f"Invalid JSON response from LLM: {str(e)}")
 
 
 class BedrockClient(BaseLLMClient):
@@ -337,16 +470,34 @@ class BedrockClient(BaseLLMClient):
 _llm_client_instance: Optional[BaseLLMClient] = None
 
 
+def _check_ollama_available() -> bool:
+    """Check if Ollama server is running and available."""
+    import httpx
+
+    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            response = client.get(f"{ollama_host}/api/tags")
+            return response.status_code == 200
+    except Exception:
+        return False
+
+
 def get_llm_client(force_mode: Optional[str] = None) -> BaseLLMClient:
     """
     Factory function to get the appropriate LLM client.
 
-    Automatically selects:
-    - MockLLMClient: When USE_MOCK_LLM=true or BEDROCK_ENABLED=false
-    - BedrockClient: When BEDROCK_ENABLED=true (production)
+    Priority order:
+    1. force_mode parameter (if specified)
+    2. USE_MOCK_LLM=true (explicit mock mode for UI testing)
+    3. BEDROCK_ENABLED=true (production AWS)
+    4. OLLAMA_ENABLED=true OR auto-detect Ollama (local AI, real responses)
+    5. MockLLMClient as last resort
+
+    By default, tries to use Ollama for real AI responses if available.
 
     Args:
-        force_mode: Force a specific mode ('mock', 'bedrock')
+        force_mode: Force a specific mode ('mock', 'ollama', 'bedrock')
 
     Returns:
         LLM client instance
@@ -356,22 +507,45 @@ def get_llm_client(force_mode: Optional[str] = None) -> BaseLLMClient:
     if _llm_client_instance is not None and force_mode is None:
         return _llm_client_instance
 
-    # Determine mode
-    if force_mode == "mock":
-        use_mock = True
-    elif force_mode == "bedrock":
-        use_mock = False
-    else:
-        use_mock = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
-        bedrock_enabled = os.getenv(
-            "BEDROCK_ENABLED", "true").lower() == "true"
-        use_mock = use_mock or not bedrock_enabled
+    # Check environment variables
+    use_mock = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    ollama_enabled = os.getenv("OLLAMA_ENABLED", "false").lower() == "true"
+    bedrock_enabled = os.getenv("BEDROCK_ENABLED", "false").lower() == "true"
 
-    if use_mock:
-        logger.info("Using MockLLMClient for local development")
+    # Determine which client to use
+    if force_mode == "mock":
+        logger.info("Using MockLLMClient (forced)")
         _llm_client_instance = MockLLMClient()
-    else:
-        logger.info("Using BedrockClient for production")
+    elif force_mode == "ollama":
+        logger.info("Using OllamaClient (forced)")
+        _llm_client_instance = OllamaClient()
+    elif force_mode == "bedrock":
+        logger.info("Using BedrockClient (forced)")
         _llm_client_instance = BedrockClient()
+    elif use_mock:
+        logger.info("Using MockLLMClient for UI testing (USE_MOCK_LLM=true)")
+        _llm_client_instance = MockLLMClient()
+    elif bedrock_enabled:
+        logger.info("Using BedrockClient for production (BEDROCK_ENABLED=true)")
+        _llm_client_instance = BedrockClient()
+    elif ollama_enabled:
+        logger.info("Using OllamaClient for local AI (OLLAMA_ENABLED=true)")
+        _llm_client_instance = OllamaClient()
+    else:
+        # Auto-detect: try Ollama first for real AI responses
+        logger.info("Auto-detecting LLM backend...")
+        if _check_ollama_available():
+            logger.info(
+                "Ollama detected and available - using OllamaClient for real AI responses")
+            _llm_client_instance = OllamaClient()
+        else:
+            logger.warning(
+                "No LLM backend configured and Ollama not available. "
+                "Using MockLLMClient. For real AI responses, either:\n"
+                "  1. Start Ollama: 'ollama serve' and 'ollama pull llama3.2:3b'\n"
+                "  2. Set OLLAMA_ENABLED=true with Ollama running\n"
+                "  3. Set BEDROCK_ENABLED=true with AWS credentials"
+            )
+            _llm_client_instance = MockLLMClient()
 
     return _llm_client_instance

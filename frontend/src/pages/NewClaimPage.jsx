@@ -1,6 +1,5 @@
 // frontend/src/pages/NewClaimPage.jsx
 
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
@@ -25,7 +24,6 @@ export function NewClaimPage() {
   const [uploadedDocs, setUploadedDocs] = useState({
     discharge_summary: null,
     insurance_policy: null,
-    billing_data: null,
   });
 
   const navigate = useNavigate();
@@ -214,19 +212,6 @@ export function NewClaimPage() {
                 onUpload={handleUpload}
                 uploadProgress={uploadProgress["insurance_policy"]}
                 uploadedFile={uploadedDocs.insurance_policy}
-                disabled={uploading}
-              />
-            </div>
-
-            <div>
-              <p className="text-xs sm:text-sm text-gray-500 mb-2">
-                Optional: Billing Data
-              </p>
-              <DocumentUploader
-                documentType="billing_data"
-                onUpload={handleUpload}
-                uploadProgress={uploadProgress["billing_data"]}
-                uploadedFile={uploadedDocs.billing_data}
                 disabled={uploading}
               />
             </div>

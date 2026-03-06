@@ -16,10 +16,15 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  RefreshCw,
+  Plus,
+  HardDrive,
 } from "lucide-react";
 import { clsx } from "clsx";
 import api from "../services/api";
 import { getErrorMessage } from "../utils/error";
+import toast from "react-hot-toast";
+import { ConfirmDialog } from "../components/common/ConfirmDialog";
 
 export function PolicyChatPage() {
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -37,10 +42,28 @@ export function PolicyChatPage() {
   const [preindexedInfo, setPreindexedInfo] = useState(null);
   const [loadingInfo, setLoadingInfo] = useState(false);
 
+  // Index management state
+  const [refreshingIndex, setRefreshingIndex] = useState(false);
+  const [deletingIndex, setDeletingIndex] = useState(false);
+  const [buildStatus, setBuildStatus] = useState(""); // Status message during build
+  const [buildProgress, setBuildProgress] = useState(0); // Progress percentage
+
+  // Files list state
+  const [indexedFiles, setIndexedFiles] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [deletingFile, setDeletingFile] = useState(null);
+  const [showFilesPanel, setShowFilesPanel] = useState(false);
+
+  // Delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showDeleteFileModal, setShowDeleteFileModal] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState(null);
+
   // Mobile panel state
   const [showMobilePanel, setShowMobilePanel] = useState(false);
 
   const fileInputRef = useRef(null);
+  const pdfInputRef = useRef(null);
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -51,22 +74,223 @@ export function PolicyChatPage() {
     }
   }, [messages]);
 
-  // Fetch pre-indexed policy info on mount
+  // Fetch pre-indexed policy info
+  const fetchPreindexedInfo = async () => {
+    setLoadingInfo(true);
+    try {
+      const response = await api.get("/policies/preindexed/info");
+      setPreindexedInfo(response.data);
+    } catch (err) {
+      console.error("Failed to fetch pre-indexed info:", err);
+      setPreindexedInfo({ available: false });
+    } finally {
+      setLoadingInfo(false);
+    }
+  };
+
+  // Fetch indexed files list
+  const fetchIndexedFiles = async () => {
+    setLoadingFiles(true);
+    try {
+      const response = await api.get("/policies/preindexed/files");
+      setIndexedFiles(response.data.files || []);
+    } catch (err) {
+      console.error("Failed to fetch indexed files:", err);
+      setIndexedFiles([]);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  // Fetch on mount
   useEffect(() => {
-    const fetchPreindexedInfo = async () => {
-      setLoadingInfo(true);
-      try {
-        const response = await api.get("/policies/preindexed/info");
-        setPreindexedInfo(response.data);
-      } catch (err) {
-        console.error("Failed to fetch pre-indexed info:", err);
-        setPreindexedInfo({ available: false });
-      } finally {
-        setLoadingInfo(false);
-      }
-    };
     fetchPreindexedInfo();
+    fetchIndexedFiles();
   }, []);
+
+  // Refresh/rebuild the FAISS index
+  const handleRefreshIndex = async () => {
+    setRefreshingIndex(true);
+    setBuildStatus("Initializing index build...");
+    setBuildProgress(5);
+
+    // Simulate progress while waiting for response
+    const progressInterval = setInterval(() => {
+      setBuildProgress((prev) => {
+        if (prev >= 90) return prev;
+        // Slow down as we approach 90%
+        const increment = prev < 30 ? 5 : prev < 60 ? 3 : 1;
+        return Math.min(prev + increment, 90);
+      });
+    }, 2000);
+
+    try {
+      setBuildStatus("Extracting clauses from PDFs...");
+      setBuildProgress(10);
+
+      // Use longer timeout for index building (5 minutes)
+      const response = await api.post(
+        "/policies/preindexed/refresh",
+        {},
+        {
+          timeout: 300000, // 5 minutes
+        },
+      );
+
+      clearInterval(progressInterval);
+
+      if (response.data.success) {
+        setBuildProgress(100);
+        setBuildStatus("Index built successfully!");
+        toast.success("Index rebuilt successfully!");
+        // Refresh the info and file list
+        await fetchPreindexedInfo();
+        await fetchIndexedFiles();
+      } else {
+        setBuildProgress(0);
+        setBuildStatus("");
+        toast.error(response.data.error || "Failed to rebuild index");
+      }
+    } catch (err) {
+      clearInterval(progressInterval);
+      console.error("Refresh error:", err);
+      setBuildProgress(0);
+      setBuildStatus("");
+
+      // Handle timeout error specifically
+      if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        toast.error(
+          "Index build is taking longer than expected. Please try again or check server logs.",
+        );
+      } else {
+        toast.error(getErrorMessage(err, "Failed to refresh index"));
+      }
+    } finally {
+      // Keep success message for a moment before clearing
+      setTimeout(() => {
+        setRefreshingIndex(false);
+        setBuildStatus("");
+        setBuildProgress(0);
+      }, 1500);
+    }
+  };
+
+  // Delete the FAISS index
+  const handleDeleteIndex = async () => {
+    setDeletingIndex(true);
+    try {
+      const response = await api.delete("/policies/preindexed/delete");
+      if (response.data.success) {
+        toast.success(response.data.message || "Index deleted");
+        setUsePreindexed(false);
+        setMessages([]);
+        // Refresh the info
+        await fetchPreindexedInfo();
+      } else {
+        toast.error(response.data.error || "Failed to delete index");
+      }
+    } catch (err) {
+      console.error("Delete error:", err);
+      toast.error(getErrorMessage(err, "Failed to delete index"));
+    } finally {
+      setDeletingIndex(false);
+      setShowDeleteModal(false);
+    }
+  };
+
+  // Delete individual PDF file
+  const handleDeleteFile = async () => {
+    if (!fileToDelete) return;
+
+    setDeletingFile(fileToDelete.filename);
+    try {
+      const response = await api.delete(
+        `/policies/preindexed/files/${encodeURIComponent(fileToDelete.filename)}`,
+      );
+      if (response.data.success) {
+        toast.success(`Deleted ${fileToDelete.filename}`);
+        // Refresh file list
+        await fetchIndexedFiles();
+      } else {
+        toast.error(response.data.error || "Failed to delete file");
+      }
+    } catch (err) {
+      console.error("Delete file error:", err);
+      toast.error(getErrorMessage(err, "Failed to delete file"));
+    } finally {
+      setDeletingFile(null);
+      setShowDeleteFileModal(false);
+      setFileToDelete(null);
+    }
+  };
+
+  // Open delete file confirmation
+  const confirmDeleteFile = (file) => {
+    setFileToDelete(file);
+    setShowDeleteFileModal(true);
+  };
+
+  // Add new policy PDF to index
+  const handleAddPolicyToIndex = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith(".pdf")) {
+      toast.error("Please select a PDF file");
+      return;
+    }
+
+    setRefreshingIndex(true);
+    setBuildStatus(`Uploading ${file.name}...`);
+    setBuildProgress(5);
+
+    try {
+      // First upload the file to data folder
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("document_type", "policy");
+
+      setBuildProgress(10);
+      await api.post("/documents/upload-policy", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000, // 1 minute for upload
+      });
+
+      setBuildProgress(20);
+      toast.success(`Uploaded ${file.name}. Rebuilding index...`);
+
+      // Reset progress tracking for the refresh phase - don't call setRefreshingIndex again
+      // Let handleRefreshIndex take over from here
+      setBuildStatus("Starting index rebuild...");
+
+      // Clear file input before calling refresh
+      if (pdfInputRef.current) {
+        pdfInputRef.current.value = "";
+      }
+
+      // Call refresh but don't set refreshingIndex to false at the end of this function
+      // since handleRefreshIndex will manage that
+      await handleRefreshIndex();
+      return; // handleRefreshIndex will handle the finally cleanup
+    } catch (err) {
+      console.error("Add policy error:", err);
+      setBuildProgress(0);
+      setBuildStatus("");
+
+      if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        toast.error(
+          "Upload/build is taking too long. Please try with a smaller file or check server.",
+        );
+      } else {
+        toast.error(getErrorMessage(err, "Failed to add policy to index"));
+      }
+
+      setRefreshingIndex(false);
+      if (pdfInputRef.current) {
+        pdfInputRef.current.value = "";
+      }
+    }
+  };
 
   // Handle file selection
   const handleFileSelect = (e) => {
@@ -305,13 +529,24 @@ export function PolicyChatPage() {
             ) : preindexedInfo?.available ? (
               <div className="space-y-3">
                 <div className="p-3 bg-green-50 rounded-lg">
-                  <p className="text-sm font-medium text-green-800">
-                    {preindexedInfo.total_clauses} clauses available
-                  </p>
-                  <p className="text-xs text-green-600 mt-1">
-                    From:{" "}
-                    {preindexedInfo.policies?.join(", ") || "Multiple insurers"}
-                  </p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-green-800">
+                        {preindexedInfo.total_clauses} clauses available
+                      </p>
+                      <p className="text-xs text-green-600 mt-1">
+                        From:{" "}
+                        {preindexedInfo.policies?.join(", ") ||
+                          "Multiple insurers"}
+                      </p>
+                    </div>
+                    {preindexedInfo.index_size_mb > 0 && (
+                      <div className="flex items-center gap-1 text-xs text-green-600">
+                        <HardDrive className="w-3 h-3" />
+                        {preindexedInfo.index_size_mb} MB
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {!usePreindexed ? (
@@ -323,22 +558,205 @@ export function PolicyChatPage() {
                     Chat with Pre-indexed Policies
                   </button>
                 ) : (
-                  <div className="p-3 bg-primary-50 rounded-lg flex items-center gap-2">
-                    <CheckCircle className="w-4 h-4 text-primary-600" />
-                    <span className="text-sm text-primary-700 font-medium">
-                      Using pre-indexed policies
-                    </span>
+                  <div className="space-y-2">
+                    <div className="p-3 bg-primary-50 rounded-lg flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-primary-600" />
+                        <span className="text-sm text-primary-700 font-medium">
+                          Using pre-indexed policies
+                        </span>
+                      </div>
+                      <button
+                        onClick={handleClear}
+                        className="text-xs text-primary-600 hover:text-primary-800 underline touch-manipulation"
+                      >
+                        Exit
+                      </button>
+                    </div>
                   </div>
                 )}
+
+                {/* Index Management Buttons */}
+                <div className="pt-2 border-t border-gray-200">
+                  <p className="text-xs text-gray-500 mb-2">Index Management</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {/* Add New Policy */}
+                    <label className="flex-1 min-w-0">
+                      <input
+                        ref={pdfInputRef}
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleAddPolicyToIndex}
+                        className="hidden"
+                        disabled={refreshingIndex}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => pdfInputRef.current?.click()}
+                        disabled={refreshingIndex}
+                        className="w-full px-3 py-2 text-xs bg-green-50 text-green-700 rounded-lg hover:bg-green-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 touch-manipulation"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add Policy
+                      </button>
+                    </label>
+
+                    {/* Refresh Index */}
+                    <button
+                      onClick={handleRefreshIndex}
+                      disabled={refreshingIndex || deletingIndex}
+                      className="flex-1 px-3 py-2 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 touch-manipulation"
+                    >
+                      {refreshingIndex ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3 h-3" />
+                      )}
+                      Rebuild
+                    </button>
+
+                    {/* Delete Index */}
+                    <button
+                      onClick={() => setShowDeleteModal(true)}
+                      disabled={refreshingIndex || deletingIndex}
+                      className="flex-1 px-3 py-2 text-xs bg-red-50 text-red-700 rounded-lg hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1 touch-manipulation"
+                    >
+                      {deletingIndex ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
+                      Delete
+                    </button>
+                  </div>
+
+                  {/* Files List Toggle */}
+                  <button
+                    onClick={() => {
+                      setShowFilesPanel(!showFilesPanel);
+                      if (!showFilesPanel) fetchIndexedFiles();
+                    }}
+                    className="w-full mt-2 px-3 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 flex items-center justify-between touch-manipulation"
+                  >
+                    <span className="flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      View PDF Files ({indexedFiles.length})
+                    </span>
+                    {showFilesPanel ? (
+                      <ChevronUp className="w-3 h-3" />
+                    ) : (
+                      <ChevronDown className="w-3 h-3" />
+                    )}
+                  </button>
+
+                  {/* Files List Panel */}
+                  {showFilesPanel && (
+                    <div className="mt-2 border border-gray-200 rounded-lg overflow-hidden">
+                      {loadingFiles ? (
+                        <div className="p-4 text-center">
+                          <Loader2 className="w-4 h-4 animate-spin mx-auto text-gray-400" />
+                        </div>
+                      ) : indexedFiles.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-gray-500">
+                          No PDF files found in data folder
+                        </div>
+                      ) : (
+                        <div className="max-h-48 overflow-y-auto">
+                          {indexedFiles.map((file, index) => (
+                            <div
+                              key={file.filename}
+                              className={clsx(
+                                "flex items-center justify-between px-3 py-2 text-xs",
+                                index % 2 === 0 ? "bg-gray-50" : "bg-white",
+                              )}
+                            >
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <FileText className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                <span
+                                  className="truncate text-gray-700"
+                                  title={file.filename}
+                                >
+                                  {file.filename}
+                                </span>
+                                <span className="text-gray-400 flex-shrink-0">
+                                  ({file.size_mb} MB)
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => confirmDeleteFile(file)}
+                                disabled={deletingFile === file.filename}
+                                className="ml-2 p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded disabled:opacity-50 touch-manipulation"
+                                title="Delete file"
+                              >
+                                {deletingFile === file.filename ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <X className="w-3 h-3" />
+                                )}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="px-3 py-2 bg-yellow-50 border-t border-gray-200">
+                        <p className="text-xs text-yellow-700">
+                          Note: Rebuild index after deleting files
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="p-3 bg-yellow-50 rounded-lg">
-                <p className="text-sm text-yellow-800">
-                  No pre-indexed policies available.
-                </p>
-                <p className="text-xs text-yellow-600 mt-1">
-                  Run the indexing script to enable this feature.
-                </p>
+              <div className="space-y-3">
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    No pre-indexed policies available.
+                  </p>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Add a policy PDF or rebuild the index.
+                  </p>
+                </div>
+
+                {/* Build Index Options when none exists */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <label className="flex-1 w-full">
+                    <input
+                      ref={pdfInputRef}
+                      type="file"
+                      accept=".pdf"
+                      onChange={handleAddPolicyToIndex}
+                      className="hidden"
+                      disabled={refreshingIndex}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => pdfInputRef.current?.click()}
+                      disabled={refreshingIndex}
+                      className="w-full px-3 py-2.5 sm:py-2 text-sm bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation"
+                    >
+                      {refreshingIndex ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4" />
+                      )}
+                      Add Policy PDF
+                    </button>
+                  </label>
+
+                  <button
+                    onClick={handleRefreshIndex}
+                    disabled={refreshingIndex}
+                    className="w-full sm:w-auto px-3 py-2.5 sm:py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation"
+                  >
+                    {refreshingIndex ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    Build Index
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -634,6 +1052,66 @@ export function PolicyChatPage() {
           </div>
         </div>
       </div>
+
+      {/* Index Building Overlay */}
+      {refreshingIndex && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 sm:p-8 max-w-md mx-4 text-center">
+            <div className="mb-4">
+              <div className="w-16 h-16 mx-auto bg-primary-100 rounded-full flex items-center justify-center">
+                <RefreshCw className="w-8 h-8 text-primary-600 animate-spin" />
+              </div>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Building Index
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {buildStatus || "Processing policy documents..."}
+            </p>
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <div
+                className="bg-primary-600 h-2 rounded-full transition-all duration-500"
+                style={{
+                  width: `${buildProgress}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              {buildProgress}% complete
+            </p>
+            <p className="text-xs text-gray-400">
+              This may take a few minutes depending on the number of documents
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Index Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={handleDeleteIndex}
+        title="Delete Index"
+        message="Are you sure you want to delete the FAISS index? This action cannot be undone. You will need to rebuild the index before using pre-indexed policies again."
+        confirmText={deletingIndex ? "Deleting..." : "Delete Index"}
+        cancelText="Cancel"
+        variant="danger"
+      />
+
+      {/* Delete File Confirmation Modal */}
+      <ConfirmDialog
+        isOpen={showDeleteFileModal}
+        onClose={() => {
+          setShowDeleteFileModal(false);
+          setFileToDelete(null);
+        }}
+        onConfirm={handleDeleteFile}
+        title="Delete PDF File"
+        message={`Are you sure you want to delete "${fileToDelete?.filename}"? This will remove the file from the data folder. You'll need to rebuild the index after deleting files.`}
+        confirmText={deletingFile ? "Deleting..." : "Delete File"}
+        cancelText="Cancel"
+        variant="danger"
+      />
     </div>
   );
 }
