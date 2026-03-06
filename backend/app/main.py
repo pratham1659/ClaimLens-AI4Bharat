@@ -4,6 +4,10 @@ FastAPI application entry point.
 """
 
 import logging
+import os
+import base64
+import binascii
+import secrets
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +31,6 @@ from app.core.exceptions import (
 )
 from app.api.v1.router import api_router
 from app.db.init_db import init_db
-from app.core.security import decode_token
 
 # Setup logging
 setup_logging()
@@ -39,8 +42,6 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan handler for startup and shutdown events.
     """
-    import os
-
     # Startup
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
@@ -212,9 +213,9 @@ def _unauthorized_docs_response() -> JSONResponse:
     return JSONResponse(
         status_code=401,
         content={
-            "detail": "Authentication required for API docs. Provide a valid Bearer access token in the Authorization header."
+            "detail": "Authentication required for API docs."
         },
-        headers={"WWW-Authenticate": "Bearer"},
+        headers={"WWW-Authenticate": 'Basic realm="ClaimLens API Docs"'},
     )
 
 
@@ -223,16 +224,31 @@ async def enforce_docs_auth(request: Request):
     if request.url.path not in docs_paths:
         return None
 
+    docs_username = os.getenv("DOCS_AUTH_USERNAME", "admin")
+    docs_password = os.getenv("DOCS_AUTH_PASSWORD", "admin")
+
     authorization = request.headers.get("Authorization", "")
-    if not authorization.lower().startswith("bearer "):
+    if not authorization.lower().startswith("basic "):
         return _unauthorized_docs_response()
 
-    token = authorization.split(" ", 1)[1].strip()
-    if not token:
+    encoded_credentials = authorization.split(" ", 1)[1].strip()
+    if not encoded_credentials:
         return _unauthorized_docs_response()
 
-    payload = decode_token(token)
-    if payload is None or payload.get("type") != "access" or not payload.get("sub"):
+    try:
+        decoded = base64.b64decode(encoded_credentials).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError):
+        return _unauthorized_docs_response()
+
+    if ":" not in decoded:
+        return _unauthorized_docs_response()
+
+    username, password = decoded.split(":", 1)
+
+    valid_username = secrets.compare_digest(username, docs_username)
+    valid_password = secrets.compare_digest(password, docs_password)
+
+    if not (valid_username and valid_password):
         return _unauthorized_docs_response()
 
     return None
