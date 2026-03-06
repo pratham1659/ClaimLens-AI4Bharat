@@ -1,7 +1,7 @@
 # backend/app/rag/embeddings.py
 """
-Unified Embedding generation supporting both local (HuggingFace) and production (AWS Bedrock).
-Automatically selects the appropriate backend based on environment configuration.
+Unified embedding generation for semantic retrieval.
+Selects local or Bedrock-backed providers based on environment configuration.
 """
 
 import os
@@ -204,9 +204,9 @@ class EmbeddingService:
     Factory class that creates the appropriate embedding service based on environment.
 
     Automatically selects:
-    - LocalEmbeddingService: When USE_MOCK_LLM=true or BEDROCK_ENABLED=false (local development)
-    - BedrockEmbeddingService: When BEDROCK_ENABLED=true (production)
-    - MockEmbeddingService: When EMBEDDING_MODE=mock (testing)
+    - LocalEmbeddingService for local semantic embedding generation
+    - BedrockEmbeddingService for production semantic embedding generation
+    - MockEmbeddingService for deterministic test-only embeddings
 
     Usage:
         service = EmbeddingService()

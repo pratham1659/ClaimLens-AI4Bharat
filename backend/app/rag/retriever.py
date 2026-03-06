@@ -1,7 +1,7 @@
 # backend/app/rag/retriever.py
 """
-RAG retriever combining embedding search with context building.
-Supports both local (FAISS + HuggingFace) and production (pgvector + Bedrock) modes.
+RAG retriever for semantic clause retrieval and context building.
+Supports local FAISS retrieval and database-backed vector retrieval modes.
 """
 
 import os
@@ -44,8 +44,8 @@ class SimpleFAISSRetriever:
 
 class RAGRetriever:
     """
-    Retriever for RAG pipeline combining semantic and keyword search.
-    Automatically switches between local and production modes.
+    Retriever for semantic RAG retrieval.
+    Automatically switches between local FAISS and database vector modes.
     """
 
     def __init__(self, db: AsyncSession, force_mode: Optional[str] = None):
