@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class SimpleFAISSRetriever:
     """
     Simple wrapper around FAISS vectorstore for direct retrieval.
-    Avoids the BM25 requirement of ClaimLensRetriever.
+    Provides direct semantic retrieval from the FAISS index.
     """
 
     def __init__(self, vectorstore, top_k: int = 20):
@@ -104,8 +104,7 @@ class RAGRetriever:
                 model_size = os.getenv("EMBEDDING_MODEL_SIZE", "base")
                 embedding_model = load_embedding_model(model_size=model_size)
 
-                # Load FAISS vectorstore directly instead of using ClaimLensRetriever
-                # This avoids the BM25 requirement
+                # Load FAISS vectorstore directly for semantic retrieval
                 logger.info(f"Loading FAISS index from: {actual_path}")
                 vectorstore = FAISS.load_local(
                     actual_path,
