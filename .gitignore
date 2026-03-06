@@ -1,38 +1,27 @@
-# =============================================================================
-# ClaimLens Insurance Platform - Git Ignore
-# =============================================================================
+# ClaimLens .gitignore
+# ====================
 
-# =============================================================================
-# Environment Files
-# =============================================================================
+# ==============================
+# Environment & Secrets
+# ==============================
+.env
+.env.local
+.env.prod
+.env.production
+.env.development
+.env.staging
 *.env
+!.env.sample
+!.env.example
 
+# AWS credentials
+.aws/
+aws-credentials
+credentials.json
 
-# =============================================================================
-# HuggingFace Models (large files - download locally)
-# =============================================================================
-models/
-*.safetensors
-*.bin
-*.onnx
-*.pt
-*.pth
-*.h5
-*.ckpt
-
-# =============================================================================
-# FAISS Vector Indexes (generated - rebuild with run_rag.sh build)
-# =============================================================================
-faiss_*/
-*.faiss
-faiss_claimlens_index/
-faiss_claimlens_combined_index/
-backend/faiss_*/
-backend/*.faiss
-
-# =============================================================================
+# ==============================
 # Python
-# =============================================================================
+# ==============================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -50,7 +39,6 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -62,8 +50,6 @@ ENV/
 env/
 .venv/
 .conda/
-conda-env/
-pip-wheel-metadata/
 
 # PyInstaller
 *.manifest
@@ -73,7 +59,7 @@ pip-wheel-metadata/
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Unit test / coverage reports
+# Unit test / coverage
 htmlcov/
 .tox/
 .nox/
@@ -86,253 +72,139 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
-pytest_cache/
 
-# Translations
-*.mo
-*.pot
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
-*.ipynb
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# Mypy
+# mypy
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# Ruff
-.ruff_cache/
-
-# =============================================================================
+# ==============================
 # Node.js / Frontend
-# =============================================================================
+# ==============================
 node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
-lerna-debug.log*
+.npm
+.yarn-integrity
 
 # Build outputs
 frontend/build/
 frontend/dist/
-.next/
-out/
+*.bundle.js
+*.bundle.js.map
 
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Optional npm cache directory
-.npm
-
-# Optional eslint cache
-.eslintcache
-
-# Optional stylelint cache
-.stylelintcache
-
-# Microbundle cache
-.rpt2_cache/
-.parcel-cache
-
-# TypeScript
-*.tsbuildinfo
-
-# =============================================================================
-# IDE / Editors
-# =============================================================================
+# ==============================
+# IDE & Editors
+# ==============================
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
-*.sublime-project
-*.sublime-workspace
 .project
 .classpath
-.c9/
-*.launch
 .settings/
-*.tm_properties
-.history/
-.Trash-*
+*.sublime-workspace
+*.sublime-project
 
-# Vim
-[._]*.s[a-v][a-z]
-[._]*.sw[a-p]
-[._]s[a-rt-v][a-z]
-[._]ss[a-gi-z]
-[._]sw[a-p]
-Session.vim
-Sessionx.vim
+# JetBrains
+*.iml
+.idea/
 
-# =============================================================================
-# OS Generated Files
-# =============================================================================
-# macOS
+# ==============================
+# OS Generated
+# ==============================
 .DS_Store
 .DS_Store?
-.AppleDouble
-.LSOverride
 ._*
 .Spotlight-V100
 .Trashes
-.fseventsd
-.TemporaryItems
-.Trash-*
-.VolumeIcon.icns
-.com.apple.timemachine.donotpresent
-
-# Windows
-Thumbs.db
-Thumbs.db:encryptable
 ehthumbs.db
-ehthumbs_vista.db
-*.stackdump
-[Dd]esktop.ini
-$RECYCLE.BIN/
-*.cab
-*.msi
-*.msix
-*.msm
-*.msp
-*.lnk
+Thumbs.db
+desktop.ini
 
-# Linux
-*~
-.fuse_hidden*
-.nfs*
+# ==============================
+# Docker
+# ==============================
+# Don't ignore docker files, but ignore volumes data
+docker-volumes/
 
-# =============================================================================
-# Logs & Temp Files
-# =============================================================================
+# ==============================
+# Logs
+# ==============================
 logs/
 *.log
-*.log.*
-log/
-tmp/
-temp/
-*.tmp
-*.temp
-*.bak
-*.backup
+backend/logs/
+frontend/logs/
 
-# =============================================================================
-# Database & Backups
-# =============================================================================
-# Keep backup directory structure, ignore contents
-backups/*.sql
-backups/*.dump
-backups/*.gz
-backups/*.tar
-backups/*.zip
-
-# SQLite
+# ==============================
+# Database
+# ==============================
 *.db
 *.sqlite
 *.sqlite3
 
-# PostgreSQL
-*.pgsql
+# ==============================
+# Backups
+# ==============================
+backups/
+*.sql
+*.dump
+*.bak
+!backend/scripts/init-db.sql
 
-# =============================================================================
-# Docker
-# =============================================================================
-docker-compose.override.yml
-.docker/
-*.dockerignore.bak
+# ==============================
+# Models & Data (Large files)
+# ==============================
+models/
+*.pt
+*.pth
+*.bin
+*.onnx
+*.safetensors
+*.gguf
+*.ggml
 
-# =============================================================================
-# Secrets & Credentials
-# =============================================================================
+# FAISS indexes
+faiss_*/
+*.faiss
+
+# HuggingFace cache
+.cache/
+
+# ==============================
+# Uploads & Generated
+# ==============================
+uploads/
+temp/
+tmp/
+*.tmp
+
+# ==============================
+# Certificates
+# ==============================
 *.pem
 *.key
 *.crt
-*.cer
+*.csr
 *.p12
 *.pfx
-secrets/
-.secrets
-credentials/
-.credentials
-*.credentials
 
-# AWS
-.aws/
-aws-credentials*
+# ==============================
+# Terraform / CloudFormation
+# ==============================
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.auto.tfvars
 
-# =============================================================================
-# Test Data & Uploads
-# =============================================================================
-# User uploaded files (processed at runtime)
-uploads/
-uploaded_files/
-user_uploads/
-
-# Test fixtures that might contain sensitive data
-test_data/
-fixtures/sensitive/
-
-# =============================================================================
-# Documentation Build
-# =============================================================================
-docs/_build/
-site/
-.docusaurus
-
-# =============================================================================
+# ==============================
 # Misc
-# =============================================================================
-# Local development scripts
-local/
-local_scripts/
-*.local.sh
-
-# Temporary analysis files
-*.analysis
-*.report
-
-# Archive files
-*.zip
-*.tar.gz
-*.rar
-*.7z
-
-# Large data files
-*.csv
-*.parquet
-!data/evaluation_queries.json
-!data/all_clauses.json
-
-# Profiling
-.prof
-*.profile
-
-ClaimLensRetriever-RFF.py
-claimlens_env
-Indexes
-.gitignore
-Things.txt
-.env
-.env.sample
-.env
-.env.sample
-.env.prod
-.env.prod.local
-
-# Local runtime artifacts
-dump.rdb
-env.sample
-storage/
+# ==============================
+*.pid
+*.seed
+*.pid.lock
+.grunt
+.lock-wscript

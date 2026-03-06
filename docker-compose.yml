@@ -1,11 +1,24 @@
 # docker-compose.yml
-# ClaimLens Insurance Platform - Production Docker Compose
+# ClaimLens Insurance Platform - Unified Docker Compose
+# ======================================================
+# Single compose file with profiles for LOCAL and PROD environments
+#
+# Usage:
+#   Local:  docker compose --profile local up -d
+#   Prod:   docker compose --profile prod up -d
+#
+# Or use the management script:
+#   ./docker-manage.sh start local
+#   ./docker-manage.sh start prod
 
 services:
-  # PostgreSQL Database with pgvector
+  # ============================================
+  # DATABASE - PostgreSQL with pgvector
+  # ============================================
   db:
     image: pgvector/pgvector:pg16
     container_name: claimlens-db
+    profiles: ["local"]
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
@@ -16,17 +29,22 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - claimlens-network
+    restart: unless-stopped
 
-  # Redis for caching and rate limiting
+  # ============================================
+  # CACHE - Redis
+  # ============================================
   redis:
     image: redis:7-alpine
     container_name: claimlens-redis
+    profiles: ["local"]
+    command: redis-server --appendonly yes
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
@@ -38,24 +56,63 @@ services:
       retries: 5
     networks:
       - claimlens-network
+    restart: unless-stopped
 
-  # Backend API
-  backend:
+  # ============================================
+  # LOCALSTACK - AWS S3 Emulation (Local only)
+  # ============================================
+  localstack:
+    image: localstack/localstack:latest
+    container_name: claimlens-localstack
+    profiles: ["local"]
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEBUG=1
+      - PERSISTENCE=1
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./backend/scripts/init-localstack.sh:/etc/localstack/init/ready.d/init.sh
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - claimlens-network
+    restart: unless-stopped
+
+  # ============================================
+  # BACKEND API - Local Development
+  # ============================================
+  backend-local:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: local
     container_name: claimlens-backend
+    profiles: ["local"]
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-claimlens}
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
-      - AWS_REGION=${AWS_REGION:-us-east-1}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-prod-documents-ap-south-1}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DEBUG=false
+      - ENVIRONMENT=development
+      - DEBUG=true
+      # Local mode - Mock LLM, no model loading
+      - USE_LOCALSTACK=true
+      - USE_MOCK_LLM=true
+      - BEDROCK_ENABLED=false
+      - SKIP_MODEL_LOADING=true
+      - EMBEDDING_MODE=mock
+      - S3_ENDPOINT_URL=http://localstack:4566
+      - AWS_ENDPOINT_URL=http://localstack:4566
+    volumes:
+      - ./backend:/app
+      - ./backend/logs:/app/logs
+      - ./data:/app/data
     ports:
       - "8000:8000"
     depends_on:
@@ -63,8 +120,43 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - claimlens-network
+    restart: unless-stopped
+
+  # ============================================
+  # BACKEND API - Production
+  # ============================================
+  backend-prod:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+    container_name: claimlens-backend
+    profiles: ["prod"]
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      - ENVIRONMENT=production
+      - DEBUG=false
+      # Production mode - AWS Bedrock
+      - USE_LOCALSTACK=false
+      - USE_MOCK_LLM=false
+      - BEDROCK_ENABLED=true
+      - EMBEDDING_MODE=bedrock
+      - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-documents}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0}
+      - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v1}
     volumes:
       - ./backend/logs:/app/logs
+    ports:
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -72,24 +164,104 @@ services:
       retries: 3
     networks:
       - claimlens-network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
 
-  # Frontend
-  frontend:
+  # ============================================
+  # FRONTEND - Local Development
+  # ============================================
+  frontend-local:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: local
     container_name: claimlens-frontend
+    profiles: ["local"]
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api/v1
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - WDS_SOCKET_PORT=0
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend-local
+    networks:
+      - claimlens-network
+    restart: unless-stopped
+
+  # ============================================
+  # FRONTEND - Production
+  # ============================================
+  frontend-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+    container_name: claimlens-frontend
+    profiles: ["prod"]
+    environment:
+      - VITE_API_URL=/api/v1
     ports:
       - "80:80"
     depends_on:
-      - backend
+      - backend-prod
     networks:
       - claimlens-network
+    restart: always
 
+  # ============================================
+  # OLLAMA - Local LLM (Optional)
+  # ============================================
+  # Enable with: docker compose --profile ollama up -d
+  # Then pull a model: docker exec claimlens-ollama ollama pull llama3.2:3b
+  ollama:
+    image: ollama/ollama:latest
+    container_name: claimlens-ollama
+    profiles: ["ollama"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - claimlens-network
+    restart: unless-stopped
+    # Uncomment below for NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+# ============================================
+# VOLUMES
+# ============================================
 volumes:
   postgres_data:
+    name: claimlens-postgres-data
   redis_data:
+    name: claimlens-redis-data
+  localstack_data:
+    name: claimlens-localstack-data
+  ollama_data:
+    name: claimlens-ollama-data
 
+# ============================================
+# NETWORKS
+# ============================================
 networks:
   claimlens-network:
+    name: claimlens-network
     driver: bridge
