@@ -6,7 +6,7 @@ This document defines the canonical engineering architecture for ClaimLens after
 - Production Retriever (Titan + FAISS)
 - API Retrieval Flow
 
-This version supersedes earlier hybrid BM25 references and reflects the current production-aligned system.
+This version supersedes earlier multi-stage hybrid references and reflects the current production-aligned system.
 
 ---
 
@@ -243,7 +243,7 @@ Purpose:
 
 ClaimLens uses a single-stage semantic retrieval pipeline in production.
 
-No BM25, no cross-encoder reranking, and no weighted score merging are used in the active path.
+No lexical stage, no secondary reranking stage, and no weighted score merging are used in the active path.
 
 ---
 
@@ -291,8 +291,8 @@ Output:
 Current production design:
 
 - Semantic-only retrieval path
-- No lexical/BM25 stage
-- No reranker stage
+- No lexical stage
+- No secondary ranking stage
 - No score-fusion heuristics
 
 Reason:
