@@ -37,6 +37,12 @@ claimlens-ai/
 ├── docker-compose.yml
 └── README.md
 
+## Docs Index
+
+- [Project Walkthrough V2](docs/PROJECT_WALKTHROUGH_V2.md)
+- [Deployment Guidelines V2 (EC2)](docs/DEPLOYMENT_GUIDELINES_V2_EC2.md)
+- [Architecture Decisions](docs/documentation.md)
+
 
 ## Features
 
