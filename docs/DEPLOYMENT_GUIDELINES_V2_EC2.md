@@ -15,7 +15,7 @@ Scope of V2 deployment:
 - EC2 Ubuntu 22.04+ instance (recommended `t3.medium` or above)
 - IAM role attached to EC2 with permissions:
   - `bedrock:InvokeModel`
-  - `s3:GetObject`, `s3:PutObject`, `s3:ListBucket`
+  - `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:HeadBucket`
 - AWS Region where Bedrock model access is enabled (current code default: `us-east-1`)
 - Open inbound security group ports:
   - `22` (SSH)
@@ -242,3 +242,17 @@ curl http://127.0.0.1:8001/health
   - region: `us-east-1`
   - bucket: `claimlens-faiss-index-1`
 - Keep EC2 IAM and S3 bucket configuration aligned with these defaults unless you refactor to env-driven config.
+- For app uploads/policy-chat, IAM should include the policy used in this setup (for example `ClaimLensS3AccessPolicy`) with object access on the configured bucket.
+
+---
+
+## 13) Policy-Chat Runtime Notes (Current)
+
+- Policy processing now uses resilient embedding fallback:
+  - primary configured mode (typically Bedrock)
+  - fallback to local embeddings
+  - fallback to mock embeddings
+- This prevents `/api/v1/policies/process/{document_id}` from failing hard when Bedrock embedding calls fail.
+- Storage diagnostics endpoint is available at:
+  - `GET /api/v1/documents/storage-health`
+  - It validates bucket access (`head`, `put`, `get`, `delete`) and returns actionable failures.

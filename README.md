@@ -41,6 +41,7 @@ claimlens-ai/
 
 - [Project Walkthrough V2](docs/PROJECT_WALKTHROUGH_V2.md)
 - [Deployment Guidelines V2 (EC2)](docs/DEPLOYMENT_GUIDELINES_V2_EC2.md)
+- [LLM Models Guide](docs/LLM_MODELS_GUIDE.md)
 - [Architecture Decisions](docs/documentation.md)
 
 
@@ -63,10 +64,17 @@ claimlens-ai/
 - **Authentication**: JWT with role-based access control
 
 ### Frontend
-- **Framework**: React 18 with Vite
+- **Framework**: React 18 (Create React App / `react-scripts`)
 - **Styling**: Tailwind CSS
 - **State Management**: React Context + Custom Hooks
 - **Charts**: Recharts
+
+## Operational Safeguards
+
+- **Storage diagnostics**: `GET /api/v1/documents/storage-health` verifies S3 `head/put/get/delete` access.
+- **Policy processing resilience**: if Bedrock embedding fails, processing falls back to local embeddings and then mock embeddings.
+- **Policy-chat fallback UX**: fallback answers are query-sensitive and concise in chatbot tone.
+- **Analysis reliability**: retrieval fallback from stored embeddings prevents flat scoring when primary retrieval returns zero clauses.
 
 ### Infrastructure
 - **Container**: Docker

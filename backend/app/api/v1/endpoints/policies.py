@@ -27,7 +27,6 @@ from sqlalchemy import select
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.claim import Claim
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -330,10 +329,7 @@ User question: {message}
 
 Please provide a helpful and accurate answer based on the policy context above."""
 
-    use_grounded_fallback = (
-        os.getenv("USE_MOCK_LLM", "false").lower() == "true"
-        or settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
-    )
+    use_grounded_fallback = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
 
     if use_grounded_fallback:
         answer = _generate_fallback_response(message, retrieved_chunks)
@@ -423,10 +419,7 @@ User query: {query}
 
 Please provide a comprehensive answer based on the policy clauses above."""
 
-    use_grounded_fallback = (
-        os.getenv("USE_MOCK_LLM", "false").lower() == "true"
-        or settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
-    )
+    use_grounded_fallback = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
 
     if use_grounded_fallback:
         answer = _generate_fallback_response(query, retrieved_chunks)
@@ -554,6 +547,30 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     }
     query_phrase = " ".join(normalized_query.split()).strip()
 
+    intent_keyword_map = {
+        "coverage": {"cover", "covered", "coverage", "expenses", "charges", "hospitalization", "icu", "ambulance", "dental", "organ", "plastic"},
+        "temporal": {"pre", "post", "before", "after", "days", "hospitalization"},
+        "waiting": {"waiting", "period", "preexisting", "pre", "existing", "disease"},
+        "cashless": {"cashless", "network", "hospital", "notify", "claim", "process"},
+        "domiciliary": {"home", "domiciliary", "treatment", "moved", "beds", "unavailable"},
+        "optional": {"air", "ambulance", "restore", "bonus", "benefit", "renew"},
+        "definition": {"mean", "means", "define", "definition", "what", "day", "care", "medically", "necessary", "deductible"},
+        "exclusion": {"ivf", "cosmetic", "experimental", "outside", "india", "excluded", "exclusion", "not", "covered"},
+        "liability": {"maximum", "max", "liability", "limit", "sum", "insured", "policy", "year", "annual"},
+    }
+
+    detected_intents = {
+        intent
+        for intent, keywords in intent_keyword_map.items()
+        if any(keyword in normalized_query for keyword in keywords)
+    }
+
+    expanded_query_terms = set(query_terms)
+    for intent in detected_intents:
+        expanded_query_terms.update(intent_keyword_map[intent])
+
+    is_boolean_question = normalized_query.strip().startswith(("does", "are", "is", "can", "will", "if"))
+
     scored_chunks = []
     for chunk in chunks:
         content = (chunk.get("content") or chunk.get("chunk_text") or "").strip()
@@ -562,10 +579,16 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
         lowered = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in content)
 
         phrase_hit = 2 if query_phrase and query_phrase in lowered else 0
-        term_hits = sum(1 for term in query_terms if term in lowered)
-        score = phrase_hit + term_hits
+        term_hits = sum(1 for term in expanded_query_terms if term in lowered)
+        intent_hits = sum(
+            1
+            for intent in detected_intents
+            for keyword in intent_keyword_map[intent]
+            if keyword in lowered
+        )
+        score = phrase_hit + term_hits + intent_hits
 
-        scored_chunks.append((score, term_hits, content))
+        scored_chunks.append((score, term_hits + intent_hits, content))
 
     scored_chunks.sort(key=lambda item: (item[0], item[1]), reverse=True)
     matched_contents = [content for score, _, content in scored_chunks if score > 0][:3]
@@ -578,6 +601,50 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
         )
 
     matched_text = "\n".join(matched_contents).lower()
+
+    liability_intent = "liability" in detected_intents
+
+    if liability_intent:
+        import re
+
+        amount_pattern = re.compile(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|[\d,]+\s*(?:lakhs?|lacs?|crores?)", re.IGNORECASE)
+        detected_amounts = []
+        for content in matched_contents:
+            detected_amounts.extend([m.group(0) for m in amount_pattern.finditer(content)])
+
+        if detected_amounts:
+            unique_amounts = []
+            for amount in detected_amounts:
+                normalized_amount = " ".join(amount.split())
+                if normalized_amount not in unique_amounts:
+                    unique_amounts.append(normalized_amount)
+            amount_text = ", ".join(unique_amounts[:3])
+            short_answer = (
+                f"Short answer: based on the extracted clauses, the policy’s maximum insurer liability appears tied to these stated limits: {amount_text}. "
+                "This is still subject to deductibles, sub-limits, and exclusions."
+            )
+        else:
+            short_answer = (
+                "Short answer: the insurer’s maximum liability for a policy year is the total amount payable under the policy terms, "
+                "typically capped by the Sum Insured shown in the Policy Schedule, and reduced by deductibles/sub-limits/exclusions."
+            )
+
+        evidence_lines = []
+        for index, content in enumerate(matched_contents[:3], start=1):
+            snippet = " ".join(content.split())
+            if len(snippet) > 220:
+                snippet = f"{snippet[:220].rstrip()}..."
+            evidence_lines.append(f"{index}) {snippet}")
+
+        evidence_block = "\n".join(evidence_lines)
+
+        return (
+            f"{short_answer}\n\n"
+            "Here’s the policy wording I found:\n"
+            f"{evidence_block}\n\n"
+            "If you share the Sum Insured value from your Policy Schedule, I can map this to an exact yearly liability amount."
+        )
+
     negative_signals = ["not covered", "excluded", "exclusion", "not payable", "not admissible"]
     positive_signals = ["covered", "payable", "eligible", "reimburs", "cashless"]
 
@@ -585,20 +652,67 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     positive_hits = sum(1 for token in positive_signals if token in matched_text)
 
     if negative_hits > positive_hits:
-        short_answer = (
-            "Short answer: this looks restricted or not covered in the clauses I found, "
-            "unless there is a specific exception."
-        )
+        if is_boolean_question:
+            short_answer = (
+                "Short answer: likely no for this scenario, because the matched clauses indicate exclusions or restrictions."
+            )
+        else:
+            short_answer = (
+                "Short answer: this looks restricted or not covered in the clauses I found, "
+                "unless there is a specific exception."
+            )
     elif positive_hits > negative_hits:
-        short_answer = (
-            "Short answer: this looks covered, but policy conditions still apply "
-            "(limits, waiting period, and exclusions)."
-        )
+        if is_boolean_question:
+            short_answer = (
+                "Short answer: likely yes, this appears covered based on the matched clauses, subject to limits/waiting period/exclusions."
+            )
+        else:
+            short_answer = (
+                "Short answer: this looks covered, but policy conditions still apply "
+                "(limits, waiting period, and exclusions)."
+            )
     else:
-        short_answer = (
-            "Short answer: the wording is unclear for this exact question, "
-            "so coverage depends on conditions and exclusions."
-        )
+        if "definition" in detected_intents:
+            short_answer = (
+                "Short answer: this appears to be defined in the policy text below; wording should be read exactly as given in the clause."
+            )
+        elif "waiting" in detected_intents:
+            import re
+
+            day_values = re.findall(r"\b(\d{1,3})\s*days?\b", matched_text)
+            if day_values:
+                unique_days = []
+                for value in day_values:
+                    if value not in unique_days:
+                        unique_days.append(value)
+                short_answer = (
+                    f"Short answer: waiting/eligibility appears time-bound in the matched clauses (noted values: {', '.join(unique_days[:3])} days)."
+                )
+            else:
+                short_answer = (
+                    "Short answer: waiting period conditions apply, but the exact timeline needs confirmation from the specific clause wording."
+                )
+        elif "temporal" in detected_intents:
+            import re
+
+            day_values = re.findall(r"\b(\d{1,3})\s*days?\b", matched_text)
+            if day_values:
+                unique_days = []
+                for value in day_values:
+                    if value not in unique_days:
+                        unique_days.append(value)
+                short_answer = (
+                    f"Short answer: this appears covered within specific time windows (detected: {', '.join(unique_days[:3])} days), subject to policy conditions."
+                )
+            else:
+                short_answer = (
+                    "Short answer: the policy seems to include pre/post hospitalization timing rules, but exact day limits are not clearly visible in top matches."
+                )
+        else:
+            short_answer = (
+                "Short answer: the wording is unclear for this exact question, "
+                "so coverage depends on conditions and exclusions."
+            )
 
     evidence_lines = []
     for index, content in enumerate(matched_contents[:3], start=1):

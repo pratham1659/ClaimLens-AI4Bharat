@@ -1,0 +1,193 @@
+[
+  {
+    "category": "coverage",
+    "query": "Does this policy cover hospitalization expenses?",
+    "expected_signal": "covered",
+    "notes": "Base hospitalization clause"
+  },
+  {
+    "category": "coverage",
+    "query": "What medical expenses are covered during hospitalization?",
+    "expected_signal": "covered"
+  },
+  {
+    "category": "coverage",
+    "query": "Are ICU charges covered under this policy?",
+    "expected_signal": "covered"
+  },
+  {
+    "category": "coverage",
+    "query": "Does the policy cover ambulance charges?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "coverage",
+    "query": "Are organ donor expenses covered?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "coverage",
+    "query": "Does the policy cover plastic surgery after an accident?",
+    "expected_signal": "depends"
+  },
+  {
+    "category": "coverage",
+    "query": "Does this policy cover dental treatment?",
+    "expected_signal": "often_excluded_or_limited"
+  },
+  {
+    "category": "pre_post_hospitalization",
+    "query": "How many days of pre-hospitalization expenses are covered?",
+    "expected_signal": "time_window"
+  },
+  {
+    "category": "pre_post_hospitalization",
+    "query": "How long are post-hospitalization expenses covered?",
+    "expected_signal": "time_window"
+  },
+  {
+    "category": "pre_post_hospitalization",
+    "query": "Are diagnostic tests before hospitalization covered?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "waiting_period",
+    "query": "What is the waiting period for diseases in this policy?",
+    "expected_signal": "waiting_period_applies"
+  },
+  {
+    "category": "waiting_period",
+    "query": "Are pre-existing diseases covered immediately?",
+    "expected_signal": "typically_no"
+  },
+  {
+    "category": "waiting_period",
+    "query": "What does waiting period mean in this policy?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "claims_cashless",
+    "query": "What is the cashless facility in this policy?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "claims_cashless",
+    "query": "Can I get treatment in a non-network hospital?",
+    "expected_signal": "depends"
+  },
+  {
+    "category": "claims_cashless",
+    "query": "What is a network hospital?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "claims_cashless",
+    "query": "What is the process to notify a claim?",
+    "expected_signal": "process"
+  },
+  {
+    "category": "home_treatment",
+    "query": "Does the policy cover treatment at home?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "home_treatment",
+    "query": "What is domiciliary hospitalization?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "home_treatment",
+    "query": "When can treatment at home be covered?",
+    "expected_signal": "conditional"
+  },
+  {
+    "category": "optional_benefits",
+    "query": "Does the policy cover air ambulance?",
+    "expected_signal": "optional_or_limited"
+  },
+  {
+    "category": "optional_benefits",
+    "query": "What is automatic restore benefit?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "optional_benefits",
+    "query": "What is cumulative bonus?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "optional_benefits",
+    "query": "What is plus benefit in this policy?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "definitions",
+    "query": "What does hospitalization mean in this policy?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "definitions",
+    "query": "What is a day care treatment?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "definitions",
+    "query": "What is medically necessary treatment?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "definitions",
+    "query": "What is a deductible?",
+    "expected_signal": "definition"
+  },
+  {
+    "category": "semantic_hard",
+    "query": "If I stay in hospital for less than 24 hours, will insurance still pay?",
+    "expected_signal": "depends_daycare_exception"
+  },
+  {
+    "category": "semantic_hard",
+    "query": "Will insurance pay for treatment taken at home instead of hospital?",
+    "expected_signal": "conditional"
+  },
+  {
+    "category": "semantic_hard",
+    "query": "If my family member donates an organ, are their hospital expenses covered?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "semantic_hard",
+    "query": "If I renew my policy every year, do I get extra coverage?",
+    "expected_signal": "bonus_or_restore"
+  },
+  {
+    "category": "adversarial",
+    "query": "Is IVF treatment covered?",
+    "expected_signal": "likely_excluded_or_limited"
+  },
+  {
+    "category": "adversarial",
+    "query": "Are cosmetic procedures covered?",
+    "expected_signal": "likely_excluded"
+  },
+  {
+    "category": "adversarial",
+    "query": "Does the policy pay for experimental treatments?",
+    "expected_signal": "likely_excluded"
+  },
+  {
+    "category": "adversarial",
+    "query": "Does the policy cover treatment outside India?",
+    "expected_signal": "policy_specific"
+  },
+  {
+    "category": "realistic",
+    "query": "If I get hospitalized for surgery, will the policy cover ICU charges, medicines, and doctor fees?",
+    "expected_signal": "covered_or_limited"
+  },
+  {
+    "category": "liability",
+    "query": "What is the maximum liability of the insurer during a policy year?",
+    "expected_signal": "sum_insured_or_policy_limit"
+  }
+]

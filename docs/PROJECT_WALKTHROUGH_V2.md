@@ -27,7 +27,7 @@ This document consolidates the latest implementation state after migration to th
 
 3. **Embedding Service**
    - `rag-system/ingestion/embedding_service.py`
-   - Uses Amazon Titan embedding model (`amazon.titan-embed-text-v1`).
+  - Uses Amazon Titan embedding model (`amazon.titan-embed-text-v2:0`).
 
 4. **Vector Store + Metadata**
    - `rag-system/vectorstore/faiss_store.py`
@@ -60,6 +60,7 @@ This document consolidates the latest implementation state after migration to th
 5. Clause text is embedded with Titan.
 6. Embeddings + metadata are written to FAISS local files.
 7. FAISS bundle is uploaded to S3.
+8. Source policy PDFs are synced to S3 under `documents/policies/`.
 
 ### Retrieval Flow
 
@@ -124,12 +125,33 @@ curl -X POST http://localhost:8001/ingest
   - `bedrock:InvokeModel`
   - `s3:GetObject`
   - `s3:PutObject`
+  - `s3:DeleteObject`
+  - `s3:HeadBucket`
   - `s3:ListBucket`
 - Keep local `indexes/` writable by the service user.
 
 ---
 
-## 7) Recommended Next Hardening (Optional)
+## 7) Backend Runtime Safeguards (Current)
+
+- **Storage diagnostics endpoint**: `GET /api/v1/documents/storage-health`
+  - validates bucket access with `head/put/get/delete` checks.
+- **Policy processing fallback**:
+  - if Bedrock embedding fails, policy processing falls back to local embeddings, then mock embeddings.
+- **Policy-chat fallback answers**:
+  - fallback responses are now query-sensitive and user-friendly, with concise answer-first phrasing and clause-grounded snippets.
+- **Analysis robustness**:
+  - analysis scoring includes retrieval fallback from stored embeddings when primary retrieval returns no clauses.
+
+---
+
+## 8) Frontend Behavior Updates
+
+- Claim detail page now auto re-analyzes once on page load when required documents are processed, ensuring fresh approval scores.
+
+---
+
+## 9) Recommended Next Hardening (Optional)
 
 - Externalize bucket/region/model IDs via env variables for all `rag-system` modules.
 - Add health checks for S3 bundle presence and Bedrock reachability.

@@ -437,8 +437,8 @@ USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 EMBEDDING_MODE=bedrock
 SKIP_MODEL_LOADING=false
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
-BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 ```
 
 ### Password Generation Commands

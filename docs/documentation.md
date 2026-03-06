@@ -251,7 +251,7 @@ No lexical stage, no secondary reranking stage, and no weighted score merging ar
 
 Embedding model:
 
-  amazon.titan-embed-text-v1
+  amazon.titan-embed-text-v2:0
 
 Vector store:
 

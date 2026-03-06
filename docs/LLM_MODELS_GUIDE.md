@@ -46,7 +46,8 @@ OLLAMA_HOST=http://ollama:11434
 OLLAMA_MODEL=llama3.2:3b
 
 # AWS Bedrock Configuration
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 
 # Embedding Mode
 EMBEDDING_MODE=mock|local|bedrock|ollama
@@ -217,11 +218,11 @@ AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 
 # Model Selection
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
 
 # Embedding Model
 EMBEDDING_MODE=bedrock
-BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 ```
 
 ### Cost Estimation
@@ -331,7 +332,8 @@ EMBEDDING_MODEL_SIZE=base
 USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 OLLAMA_ENABLED=false
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 EMBEDDING_MODE=bedrock
 ```
 
@@ -435,6 +437,15 @@ EMBEDDING_MODEL_SIZE=small
 **Timeout:**
 - Check AWS region matches your configuration
 - Verify network connectivity to AWS
+
+### Policy Processing Embedding Fallback
+
+If Bedrock Titan embedding calls fail during policy processing, ClaimLens now attempts fallback modes automatically:
+
+1. Local embedding mode
+2. Mock embedding mode
+
+This keeps policy processing and policy-chat functional instead of failing the request.
 
 ---
 
