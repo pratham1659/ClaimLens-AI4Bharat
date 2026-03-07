@@ -195,6 +195,24 @@ async def search_policies(
     # Ensure limit is within bounds
     limit = min(request.limit, 50)
 
+    if request.document_ids:
+        filtered_embedding_count_result = await db.execute(
+            select(func.count(Embedding.id)).where(Embedding.document_id.in_(request.document_ids))
+        )
+        filtered_embedding_count = int(filtered_embedding_count_result.scalar() or 0)
+
+        if filtered_embedding_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": (
+                        "The provided document_ids have no indexed policy embeddings. "
+                        "Use valid processed policy document IDs, or omit document_ids to search across all indexed policies."
+                    ),
+                    "provided_document_ids": [str(doc_id) for doc_id in request.document_ids],
+                },
+            )
+
     results = await retriever.retrieve(
         query=request.query,
         document_ids=request.document_ids,
