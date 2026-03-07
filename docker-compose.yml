@@ -224,7 +224,7 @@ services:
     environment:
       - VITE_API_URL=/api/v1
     ports:
-      - "80:80"
+      - "${FRONTEND_HOST_PORT:-3000}:80"
     depends_on:
       - backend-prod
     networks:

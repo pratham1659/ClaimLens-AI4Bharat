@@ -1,36 +1,48 @@
-# ClaimLens Deployment Guidelines V2 (EC2)
+# ClaimLens Deployment Guidelines V2 (EC2 + Docker)
 
-This guide describes how to deploy the **new semantic RAG changes** on an EC2 instance.
+This runbook replaces the old standalone `rag-system` deployment.
 
-Scope of V2 deployment:
+Current deployment in this repository is Docker-first and profile-based:
 
-- `rag-system` ingestion + retrieval API
-- Titan embeddings via Bedrock
-- FAISS index persistence + S3 sync
+- `docker-compose.yml` with `prod` profile
+- `backend` service (includes RAG + policy search/chat APIs)
+- `frontend` service (Nginx static host + `/api` proxy)
+- PostgreSQL + Redis containers (or external endpoints via `.env`)
 
 ---
 
 ## 1) Prerequisites
 
-- EC2 Ubuntu 22.04+ instance (recommended `t3.medium` or above)
-- IAM role attached to EC2 with permissions:
+- EC2 AMI: `ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-20251212` (Ubuntu 22.04 LTS)
+- Instance size: recommended `t3.medium` or above
+- IAM role attached to EC2 with at least:
   - `bedrock:InvokeModel`
-  - `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`, `s3:HeadBucket`
-- AWS Region where Bedrock model access is enabled (current code default: `us-east-1`)
-- Open inbound security group ports:
+  - `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:HeadBucket`
+- Bedrock model access enabled in your chosen region
+- Security group inbound (minimum):
   - `22` (SSH)
-  - `8001` (RAG API, or keep private behind Nginx)
+  - `80` (frontend)
+  - `8000` (backend API/direct health checks, optional if private)
 
 ---
 
-## 2) Bootstrap EC2
+## 2) Bootstrap EC2 (Docker Host)
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-venv python3-pip git nginx
+sudo apt install -y git curl ca-certificates gnupg lsb-release
+
+# Install Docker Engine + Compose plugin
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Optional sanity checks
+docker --version
+docker compose version
 ```
 
-Clone project:
+Clone repository:
 
 ```bash
 cd /opt
@@ -41,218 +53,247 @@ cd /opt/claimlens
 
 ---
 
-## 3) Configure Python Environment
+## 3) Configure Production Environment
 
 ```bash
-cd /opt/claimlens/rag-system
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+cd /opt/claimlens
+cp .env.sample .env
+```
+
+Update `.env` for production (required):
+
+```dotenv
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+
+# Security
+SECRET_KEY=<secure-random-value>
+CORS_ORIGINS=https://<your-domain>
+
+# Data stores (can be external or local docker services)
+DATABASE_URL=postgresql+asyncpg://<user>:<password>@<db-host>:5432/claimlens
+REDIS_URL=redis://:<password>@<redis-host>:6379/0
+
+# AWS
+AWS_REGION=<your-bedrock-region>
+AWS_ACCESS_KEY_ID=<access-key-or-use-iam-role>
+AWS_SECRET_ACCESS_KEY=<secret-key-or-use-iam-role>
+S3_BUCKET_NAME=<your-bucket>
+USE_LOCALSTACK=false
+S3_ENDPOINT_URL=
+AWS_ENDPOINT_URL=
+
+# LLM / Embeddings
+USE_MOCK_LLM=false
+BEDROCK_ENABLED=true
+EMBEDDING_MODE=bedrock
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
+```
+
+Notes:
+
+- If `DATABASE_URL` points to `@db:5432`, compose `prod` uses local docker DB service.
+- If using EC2 IAM role, you can leave static AWS keys empty.
+- Keep `BEDROCK_MODEL_ID` as an LLM model (not Titan embedding model).
+
+---
+
+## 4) Start Production Stack (Docker)
+
+Recommended (project script):
+
+```bash
+cd /opt/claimlens
+chmod +x docker-manage.sh
+./docker-manage.sh start prod
+```
+
+Equivalent raw compose command:
+
+```bash
+docker compose --profile prod up -d --build
+```
+
+Check status/logs:
+
+```bash
+./docker-manage.sh status
+./docker-manage.sh logs backend
+./docker-manage.sh logs frontend
 ```
 
 ---
 
-## 4) Prepare Runtime Directories
+## 5) Database Migration
+
+Run migrations once backend is up:
 
 ```bash
-mkdir -p /opt/claimlens/rag-system/indexes
-mkdir -p /opt/claimlens/rag-system/documents/policies
+cd /opt/claimlens
+./docker-manage.sh migrate
 ```
 
-Add your policy PDFs to:
+If using local Docker PostgreSQL and pgvector needs repair:
 
-- `/opt/claimlens/rag-system/documents/policies/`
+```bash
+./docker-manage.sh fix-postgres
+```
 
 ---
 
-## 5) Verify AWS Access on EC2
+## 6) Post-Deployment Verification
+
+Core health checks:
 
 ```bash
-aws sts get-caller-identity
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1/
 ```
 
-If this fails:
+Expected backend health shape:
 
-- Attach/repair EC2 IAM role, or
-- Configure credentials via environment (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_DEFAULT_REGION`).
+- `status` should be `healthy`
+- response includes `environment` and `version`
+
+Frontend reachability:
+
+```bash
+curl -I http://127.0.0.1/
+```
+
+Storage diagnostics endpoint (auth required):
+
+1. Obtain JWT via `/api/v1/auth/login`
+2. Call:
+
+```bash
+curl -H "Authorization: Bearer <TOKEN>" \
+  http://127.0.0.1:8000/api/v1/documents/storage-health
+```
+
+It validates S3 `head/put/get/delete` and returns actionable failures.
 
 ---
 
-## 6) Initial Ingestion + Index Build
+## 7) RAG / Policy APIs (Current Endpoints)
 
-Start API once:
+The old `/ingest` and standalone `rag-system` API are not the active path in latest code.
 
-```bash
-cd /opt/claimlens/rag-system
-source .venv/bin/activate
-uvicorn api.server:app --host 0.0.0.0 --port 8001
-```
+Use these endpoints instead (all under backend API):
 
-In another terminal:
+- `POST /api/v1/policies/process/{document_id}`
+- `POST /api/v1/policies/search`
+- `POST /api/v1/policies/chat`
+- `GET /api/v1/documents/storage-health`
 
-```bash
-curl -X POST http://<EC2_PUBLIC_IP>:8001/ingest
-curl http://<EC2_PUBLIC_IP>:8001/health
-```
+Runtime behavior includes embedding fallback:
 
-Expected:
-
-- `indexed_clauses` > 0
-- `index_size` > 0
-
-This also uploads FAISS bundle to S3 (`indexes/faiss.index`, `indexes/metadata.pkl`).
+- primary configured mode (typically Bedrock)
+- fallback to local embeddings
+- fallback to mock embeddings
 
 ---
 
-## 7) Run as a Systemd Service
+## 8) Optional: Run on Boot with systemd (Docker Compose)
 
-Create service file:
+Create service:
 
 ```bash
-sudo tee /etc/systemd/system/claimlens-rag.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/claimlens-docker.service > /dev/null << 'EOF'
 [Unit]
-Description=ClaimLens RAG API (V2)
-After=network.target
+Description=ClaimLens Docker Compose Stack
+Requires=docker.service
+After=docker.service network-online.target
 
 [Service]
-Type=simple
-User=ubuntu
-WorkingDirectory=/opt/claimlens/rag-system
-Environment="PYTHONUNBUFFERED=1"
-ExecStart=/opt/claimlens/rag-system/.venv/bin/uvicorn api.server:app --host 0.0.0.0 --port 8001
-Restart=always
-RestartSec=5
+Type=oneshot
+WorkingDirectory=/opt/claimlens
+ExecStart=/usr/bin/docker compose --profile prod up -d --build
+ExecStop=/usr/bin/docker compose --profile prod down
+RemainAfterExit=yes
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
 EOF
 ```
 
-Enable and start:
+Enable/start:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable claimlens-rag
-sudo systemctl start claimlens-rag
-sudo systemctl status claimlens-rag --no-pager
-```
-
-Logs:
-
-```bash
-journalctl -u claimlens-rag -f
+sudo systemctl enable claimlens-docker
+sudo systemctl start claimlens-docker
+sudo systemctl status claimlens-docker --no-pager
 ```
 
 ---
 
-## 8) Optional Nginx Reverse Proxy
-
-Create Nginx site:
-
-```bash
-sudo tee /etc/nginx/sites-available/claimlens-rag > /dev/null << 'EOF'
-server {
-    listen 80;
-    server_name _;
-
-    location / {
-        proxy_pass http://127.0.0.1:8001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-```
-
-Enable config:
-
-```bash
-sudo ln -sf /etc/nginx/sites-available/claimlens-rag /etc/nginx/sites-enabled/claimlens-rag
-sudo nginx -t
-sudo systemctl restart nginx
-```
-
----
-
-## 9) Deploying New Changes Safely (Update Runbook)
+## 9) Safe Update Runbook
 
 ```bash
 cd /opt/claimlens
 git pull origin <YOUR_BRANCH>
-cd rag-system
-source .venv/bin/activate
-pip install -r requirements.txt
-sudo systemctl restart claimlens-rag
-curl http://127.0.0.1:8001/health
-```
 
-If ingestion logic changed or policies updated:
+# Refresh services
+./docker-manage.sh restart prod
 
-```bash
-curl -X POST http://127.0.0.1:8001/ingest
+# Re-run migrations if schema changed
+./docker-manage.sh migrate
+
+# Verify
+curl http://127.0.0.1:8000/health
 ```
 
 ---
 
-## 10) Post-Deployment Verification Checklist
-
-- `GET /health` returns `status=ok` and non-zero `index_size`.
-- `GET /search` returns ranked clauses.
-- Systemd service auto-restarts after reboot:
-
-```bash
-sudo reboot
-# after reconnect
-sudo systemctl status claimlens-rag --no-pager
-```
-
-- S3 index bundle is present and updated.
-
----
-
-## 11) Rollback Plan
-
-If a deployment fails:
-
-1. Checkout previous stable commit/tag.
-2. Reinstall deps if needed.
-3. Restart service.
-4. Validate with `/health` and `/search`.
-
-Example:
+## 10) Rollback Plan
 
 ```bash
 cd /opt/claimlens
-git checkout <PREVIOUS_STABLE_TAG>
-cd rag-system
-source .venv/bin/activate
-pip install -r requirements.txt
-sudo systemctl restart claimlens-rag
-curl http://127.0.0.1:8001/health
+git checkout <PREVIOUS_STABLE_TAG_OR_COMMIT>
+./docker-manage.sh restart prod
+./docker-manage.sh migrate
+curl http://127.0.0.1:8000/health
+```
+
+If using local DB volumes and rollback needs data reset/restore:
+
+```bash
+./docker-manage.sh backup
+./docker-manage.sh restore --auto
 ```
 
 ---
 
-## 12) Notes for This Repository
+## 11) Quick Troubleshooting
 
-- Current `rag-system` code uses hardcoded defaults for:
-  - region: `us-east-1`
-  - bucket: `claimlens-faiss-index-1`
-- Keep EC2 IAM and S3 bucket configuration aligned with these defaults unless you refactor to env-driven config.
-- For app uploads/policy-chat, IAM should include the policy used in this setup (for example `ClaimLensS3AccessPolicy`) with object access on the configured bucket.
+- Backend not healthy:
+  - `./docker-manage.sh logs backend`
+  - verify `.env` (`DATABASE_URL`, `REDIS_URL`, `BEDROCK_ENABLED`, `S3_BUCKET_NAME`)
+- AWS/Bedrock errors:
+  - validate IAM role permissions and region
+  - ensure Bedrock model access is enabled in configured region
+- S3 upload/diagnostic failures:
+  - test `GET /api/v1/documents/storage-health` with valid JWT
+- Port conflicts:
+  - check `80`, `8000`, `5432`, `6379`
 
 ---
 
-## 13) Policy-Chat Runtime Notes (Current)
+## 12) Command Reference
 
-- Policy processing now uses resilient embedding fallback:
-  - primary configured mode (typically Bedrock)
-  - fallback to local embeddings
-  - fallback to mock embeddings
-- This prevents `/api/v1/policies/process/{document_id}` from failing hard when Bedrock embedding calls fail.
-- Storage diagnostics endpoint is available at:
-  - `GET /api/v1/documents/storage-health`
-  - It validates bucket access (`head`, `put`, `get`, `delete`) and returns actionable failures.
+```bash
+./docker-manage.sh start prod
+./docker-manage.sh stop
+./docker-manage.sh restart prod
+./docker-manage.sh status
+./docker-manage.sh logs
+./docker-manage.sh exec backend
+./docker-manage.sh migrate
+./docker-manage.sh backup
+./docker-manage.sh restore
+```
