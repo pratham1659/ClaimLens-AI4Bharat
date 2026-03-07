@@ -8,3 +8,4 @@ scripts
 __pycache__
 .venv
 .DS_Store
+backend/rag_core_snapshot
