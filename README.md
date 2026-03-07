@@ -1,8 +1,9 @@
-# ClaimLens AI
-
 <div align="center">
 
-![ClaimLens Logo](docs/images/logo.png)
+<p align="center">
+  <img src="frontend/public/git_logo.png" alt="ClaimLens AI Logo" width="350"/>
+</p>
+
 
 **AI-Powered Insurance Claim Analysis Platform**
 
@@ -85,27 +86,27 @@
 │                           ClaimLens AI                              │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐ │
-│  │   Frontend  │    │   Backend   │    │     AI/ML Pipeline      │ │
-│  │   (React)   │◄──►│  (FastAPI)  │◄──►│  (RAG + LLM)           │ │
-│  └─────────────┘    └──────┬──────┘    └───────────┬─────────────┘ │
-│                            │                       │               │
-│                            ▼                       ▼               │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                     Data Layer                              │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │   │
-│  │  │PostgreSQL│  │  Redis   │  │  FAISS/  │  │    S3    │   │   │
-│  │  │(pgvector)│  │ (Cache)  │  │ pgvector │  │(Documents)│   │   │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────┐  │
+│  │   Frontend  │    │   Backend   │    │     AI/ML Pipeline      │  │
+│  │   (React)   │◄──►│  (FastAPI)  │◄──►│  (RAG + LLM)            │  │
+│  └─────────────┘    └──────┬──────┘    └───────────┬─────────────┘  │
+│                            │                       │                │
+│                            ▼                       ▼                │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                     Data Layer                              │    │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────┐    │    │
+│  │  │PostgreSQL│  │  Redis   │  │  FAISS/  │  │    S3     │    │    │
+│  │  │(pgvector)│  │ (Cache)  │  │ pgvector │  │(Documents)│    │    │
+│  │  └──────────┘  └──────────┘  └──────────┘  └───────────┘    │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                   LLM Providers                             │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │   │
-│  │  │   Mock   │  │  Ollama  │  │  AWS     │                 │   │
-│  │  │  (Dev)   │  │ (Local)  │  │ Bedrock  │                 │   │
-│  │  └──────────┘  └──────────┘  └──────────┘                 │   │
-│  └─────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                        LLM Providers                        │    │
+│  │       ┌──────────┐  ┌──────────┐  ┌──────────┐              │    │
+│  │       │   Mock   │  │  Ollama  │  │  AWS     │              │    │
+│  │       │  (Dev)   │  │ (Local)  │  │ Bedrock  │              │    │
+│  │       └──────────┘  └──────────┘  └──────────┘              │    │
+│  └─────────────────────────────────────────────────────────────┘    │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -740,11 +741,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- [AI4Bharat](https://ai4bharat.org/) for supporting the development
+- [AI4Bharat](https://vision.hack2skill.com/event/ai-for-bharat) for supporting the development
 - [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
 - [LangChain](https://langchain.com/) for the LLM orchestration tools
-- [HuggingFace](https://huggingface.co/) for open-source models
-- [Ollama](https://ollama.ai/) for local LLM inference
 
 ---
 
