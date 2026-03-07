@@ -27,6 +27,7 @@ from app.models.document import DocumentType
 from app.models.user import User
 from app.services.document_service import DocumentService
 from app.services.response_formatter import generate_final_response
+from app.llm.prompts import POLICY_CHAT_SYSTEM_PROMPT
 from app.api.deps import get_document_service, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -602,13 +603,12 @@ async def chat_with_policy(
     llm_client = get_llm_client()
 
     # Build prompt with context
-    system_prompt = """You are an expert insurance policy analyst assistant.
-Answer questions about insurance policies based on the provided context.
-Be precise, cite specific clauses when relevant, and explain in clear language.
-If the context doesn't contain enough information, say so clearly."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Context from policy document:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 Chat history:
 {_format_chat_history(chat_history)}
@@ -714,12 +714,12 @@ async def query_preindexed_policies(
     # Get LLM response
     llm_client = get_llm_client()
 
-    system_prompt = """You are an expert insurance policy analyst.
-Based on the retrieved policy clauses, provide accurate and helpful information.
-Cite specific clause numbers and policy names when available."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Retrieved policy clauses:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 User query: {query}
 
@@ -1087,17 +1087,28 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     plain_language_interpretation = ""
 
     if liability_intent:
-        amount_pattern = re.compile(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|[\d,]+\s*(?:lakhs?|lacs?|crores?)", re.IGNORECASE)
+        amount_pattern = re.compile(
+            r"(?:rs\.?|inr|₹)\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\s*(?:lakhs?|lacs?|crores?)\b",
+            re.IGNORECASE,
+        )
         detected_amounts = []
         for content in matched_contents:
             detected_amounts.extend([m.group(0) for m in amount_pattern.finditer(content)])
 
         if detected_amounts:
             unique_amounts = []
+            seen_amounts = set()
             for amount in detected_amounts:
-                normalized_amount = " ".join(amount.split())
-                if normalized_amount not in unique_amounts:
+                normalized_amount = " ".join(amount.split()).strip(" ,;:")
+                normalized_amount = re.sub(r"^(?:inr|rs\.?)\s*", "Rs. ", normalized_amount, flags=re.IGNORECASE)
+                normalized_amount = re.sub(r"\s+", " ", normalized_amount).strip()
+                dedupe_key = normalized_amount.lower()
+                if not normalized_amount or dedupe_key in seen_amounts:
+                    continue
+                seen_amounts.add(dedupe_key)
+                if re.search(r"\d", normalized_amount):
                     unique_amounts.append(normalized_amount)
+
             amount_text = ", ".join(unique_amounts[:3])
             coverage_explanation = (
                 "Based on the retrieved wording, the insurer’s maximum liability appears linked to the stated monetary limits in the policy terms."
