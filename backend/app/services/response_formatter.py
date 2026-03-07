@@ -122,11 +122,19 @@ def format_interpretation(text: str) -> str:
     return f"In simple terms, {sentence[0].lower() + sentence[1:] if len(sentence) > 1 else sentence.lower()}"
 
 
-def format_key_conditions(clauses: List[str]) -> str:
-    if not clauses:
+def format_key_conditions(query: str, clauses: List[str]) -> str:
+    relevant_clauses = _select_relevant_clauses(query, clauses)
+    if not relevant_clauses:
+        relevant_clauses = [
+            " ".join((clause or "").split()).strip()
+            for clause in clauses[:1]
+            if " ".join((clause or "").split()).strip()
+        ]
+
+    if not relevant_clauses:
         return ""
 
-    joined = "\n".join(" ".join((clause or "").split()) for clause in clauses).lower()
+    joined = "\n".join(relevant_clauses).lower()
     if not joined.strip():
         return ""
 
@@ -150,7 +158,7 @@ def format_key_conditions(clauses: List[str]) -> str:
                 unique_months.append(normalized)
         conditions.append(f"duration windows mentioned: {', '.join(unique_months[:3])}")
 
-    amount_matches = re.findall(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|\b[\d,]+\s*(?:lakhs?|lacs?|crores?)\b", joined)
+    amount_matches = re.findall(r"(?:rs\.?|inr|₹)\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\s*(?:lakhs?|lacs?|crores?)\b", joined)
     if amount_matches:
         unique_amounts = []
         for value in amount_matches:
@@ -171,7 +179,8 @@ def format_key_conditions(clauses: List[str]) -> str:
     if not conditions:
         return ""
 
-    return "Key conditions visible in retrieved clauses: " + "; ".join(conditions) + "."
+    formatted_conditions = "\n".join(f"- {item}" for item in conditions[:4])
+    return "Key conditions visible in retrieved clauses:\n" + formatted_conditions
 
 
 def format_followup(query: str) -> str:
@@ -200,7 +209,7 @@ def generate_final_response(
     explanation = _ensure_sentence(coverage_explanation)
     interpretation = format_interpretation(plain_language_interpretation)
     policy_reference = format_policy_reference(query, clauses)
-    key_conditions = format_key_conditions(clauses)
+    key_conditions = format_key_conditions(query, clauses)
     followup_text = _ensure_sentence(follow_up) if follow_up else ""
 
     sections = [
