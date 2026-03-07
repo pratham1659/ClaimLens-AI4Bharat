@@ -166,6 +166,8 @@ export const analysisAPI = {
 export const policiesAPI = {
   list: () => api.get("/policies"),
 
+  readiness: () => api.get("/policies/search/readiness"),
+
   getClauses: (documentId, params = {}) =>
     api.get(`/policies/${documentId}/clauses`, { params }),
 

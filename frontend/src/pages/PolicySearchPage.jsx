@@ -1,6 +1,6 @@
 // frontend/src/pages/PolicySearchPage.jsx
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Search, FileText, Loader, BookOpen } from "lucide-react";
 import { policiesAPI } from "../services/api";
 import { debounce } from "../utils/helpers";
@@ -11,6 +11,20 @@ export function PolicySearchPage() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [readiness, setReadiness] = useState(null);
+
+  useEffect(() => {
+    const loadReadiness = async () => {
+      try {
+        const response = await policiesAPI.readiness();
+        setReadiness(response.data || null);
+      } catch {
+        setReadiness(null);
+      }
+    };
+
+    loadReadiness();
+  }, []);
 
   const performSearch = useCallback(
     debounce(async (searchQuery) => {
@@ -24,9 +38,26 @@ export function PolicySearchPage() {
       try {
         const response = await policiesAPI.search(searchQuery, null, 20);
         setResults(response.data.results);
+        setReadiness(response.data.readiness || response.data.diagnostics || readiness);
         setSearched(true);
       } catch (error) {
-        toast.error("Search failed");
+        const detailPayload = error?.response?.data?.detail;
+        const detailMessage =
+          typeof detailPayload === "string"
+            ? detailPayload
+            : detailPayload?.message;
+        const readinessPayload =
+          error?.response?.data?.readiness ||
+          (typeof detailPayload === "object" ? detailPayload?.readiness : null);
+        if (readinessPayload) {
+          setReadiness(readinessPayload);
+        }
+        const detail =
+          detailMessage ||
+          error?.response?.data?.hint ||
+          error?.userMessage ||
+          "Search failed";
+        toast.error(detail);
       } finally {
         setLoading(false);
       }
@@ -95,6 +126,16 @@ export function PolicySearchPage() {
             ))}
           </div>
         </div>
+
+        {readiness && !readiness.ready_for_policy_search && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-800">Search readiness issue detected</p>
+            <p className="mt-1 text-xs text-amber-700">
+              mode: {readiness.mode || "unknown"} • db embeddings: {readiness.embedding_rows_in_db ?? 0} •
+              faiss index: {readiness.faiss_index_exists ? "yes" : "no"}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Results - Responsive */}

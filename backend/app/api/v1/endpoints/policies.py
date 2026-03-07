@@ -12,7 +12,7 @@ This module provides:
 import logging
 import os
 import re
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from pydantic import BaseModel
@@ -25,10 +25,11 @@ from app.services.document_service import DocumentService
 from app.services.response_formatter import generate_final_response
 from app.api.deps import get_document_service, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.claim import Claim
+from app.models.embedding import Embedding
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,37 @@ class PolicySearchRequest(BaseModel):
     query: str
     document_ids: Optional[List[UUID]] = None
     limit: int = 20
+
+
+async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
+    embedding_count_result = await db.execute(select(func.count(Embedding.id)))
+    embedding_count = int(embedding_count_result.scalar() or 0)
+
+    faiss_path = os.getenv("FAISS_INDEX_PATH", "faiss_claimlens_index")
+    combined_faiss_path = os.getenv("FAISS_COMBINED_INDEX_PATH", "faiss_claimlens_combined_index")
+    clauses_paths = [
+        "data/all_clauses.json",
+        "/app/data/all_clauses.json",
+        "../data/all_clauses.json",
+    ]
+
+    return {
+        "embedding_rows_in_db": embedding_count,
+        "faiss_index_exists": os.path.exists(faiss_path) or os.path.exists(combined_faiss_path),
+        "clauses_file_exists": any(os.path.exists(path) for path in clauses_paths),
+    }
+
+
+async def _collect_search_readiness(db: AsyncSession, mode: str) -> Dict[str, Any]:
+    diagnostics = await _collect_search_diagnostics(db)
+    has_searchable_data = diagnostics["embedding_rows_in_db"] > 0 or diagnostics["faiss_index_exists"]
+    return {
+        "mode": mode,
+        "is_mock_mode": mode == "mock",
+        "has_searchable_data": has_searchable_data,
+        "ready_for_policy_search": mode != "mock" and has_searchable_data,
+        **diagnostics,
+    }
 
 
 @router.get(
@@ -145,6 +177,20 @@ async def search_policies(
     from app.rag.retriever import create_rag_retriever
 
     retriever = create_rag_retriever(db)
+    readiness = await _collect_search_readiness(db, retriever.embedding_service.mode)
+
+    if retriever.embedding_service.mode == "mock":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "message": (
+                    "Policy search is running in mock mode. Set "
+                    "USE_MOCK_LLM=false, BEDROCK_ENABLED=true, EMBEDDING_MODE=bedrock, "
+                    "and BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0, then restart backend."
+                ),
+                "readiness": readiness,
+            },
+        )
 
     # Ensure limit is within bounds
     limit = min(request.limit, 50)
@@ -156,12 +202,46 @@ async def search_policies(
         use_hybrid=True
     )
 
+    if results:
+        return {
+            "results": results,
+            "query": request.query,
+            "count": len(results),
+            "mode": retriever.embedding_service.mode,
+            "readiness": readiness,
+        }
+
     return {
-        "results": results,
+        "results": [],
         "query": request.query,
-        "count": len(results),
-        "mode": retriever.embedding_service.mode
+        "count": 0,
+        "mode": retriever.embedding_service.mode,
+        "diagnostics": readiness,
+        "hint": (
+            "No matches found. Ensure policy embeddings are processed into DB or local FAISS preindexed files are available. "
+            "You can verify with GET /api/v1/policies/preindexed/info."
+        ),
     }
+
+
+@router.get(
+    "/search/readiness",
+    response_model=dict,
+    summary="Get policy search readiness"
+)
+async def get_policy_search_readiness(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get policy-search readiness diagnostics for current runtime mode and index/data availability."""
+    from app.rag.retriever import create_rag_retriever
+
+    retriever = create_rag_retriever(db)
+    readiness = await _collect_search_readiness(db, retriever.embedding_service.mode)
+    readiness["hint"] = (
+        "Set bedrock mode (non-mock) and ensure either DB embeddings or FAISS preindexed data exists."
+    )
+    return readiness
 
 
 @router.post(
