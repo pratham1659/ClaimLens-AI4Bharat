@@ -24,7 +24,8 @@ def print_clause(clause, index):
 if __name__ == "__main__":
 
     queries = [
-        'Information about IVF'
+        'What medical expenses are covered during hospitalization?'
+        # 'Information about IVF'
         # "Is cosmetic surgery covered?",
         # "Is IVF covered?",
         # "What is grace period?",
@@ -50,11 +51,20 @@ if __name__ == "__main__":
         policy_version_year=2025
     )
 
+    docs_hdfc = load_policy_documents(
+        pdf_path="data/HDFC optima-secure-revision-pw.pdf",
+        insurer="HDFC",
+        policy_name="Optima",
+        uin="NIVHLIPXXXX",
+        policy_version_year=2025
+    )
+
     def choose_docs(choice: str):
         mapping = {
             "icici": docs_icici,
             "niva": docs_niva,
-            "both": docs_icici + docs_niva
+            "hdfc": docs_hdfc,
+            "all": docs_icici + docs_niva + docs_hdfc
         }
 
         try:
@@ -62,7 +72,7 @@ if __name__ == "__main__":
         except KeyError:
             raise ValueError("Invalid option. Choose: icici, niva, or both.")
 
-    docs = choose_docs("icici")
+    docs = choose_docs("hdfc")
 
     print("Splitting into clauses...")
     clause_docs = health_policy_splitter(docs)

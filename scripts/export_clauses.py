@@ -28,11 +28,20 @@ def export_clauses_to_json(output_path="all_clauses.json"):
         policy_version_year=2025
     )
 
+    docs_hdfc = load_policy_documents(
+        pdf_path="data/HDFC optima-secure-revision-pw.pdf",
+        insurer="HDFC",
+        policy_name="Optima",
+        uin="NIVHLIPXXXX",
+        policy_version_year=2025
+    )
+
     def choose_docs(choice: str):
         mapping = {
             "icici": docs_icici,
             "niva": docs_niva,
-            "both": docs_icici + docs_niva,
+            "hdfc": docs_hdfc,
+            "all": docs_icici + docs_niva + docs_hdfc
         }
 
         try:
@@ -40,7 +49,7 @@ def export_clauses_to_json(output_path="all_clauses.json"):
         except KeyError:
             raise ValueError("Invalid option. Choose: icici, niva, or both.")
     
-    docs = choose_docs("icici")
+    docs = choose_docs("hdfc")
 
     print("Splitting into clauses...")
     clause_docs = health_policy_splitter(docs)
