@@ -863,6 +863,12 @@ async def ingest_preindexed_policies(
         )
 
     if completed.returncode != 0:
+        rag_root_entries: List[str] = []
+        try:
+            rag_root_entries = sorted([entry.name for entry in rag_root.iterdir()])
+        except Exception:
+            rag_root_entries = []
+
         raise HTTPException(
             status_code=500,
             detail={
@@ -870,6 +876,16 @@ async def ingest_preindexed_policies(
                 "return_code": completed.returncode,
                 "stdout": (completed.stdout or "")[-1200:],
                 "stderr": (completed.stderr or "")[-1200:],
+                "diagnostics": {
+                    "rag_system_root": str(rag_root),
+                    "rag_system_root_exists": rag_root.exists(),
+                    "ingestion_dir_exists": (rag_root / "ingestion").exists(),
+                    "storage_dir_exists": (rag_root / "storage").exists(),
+                    "storage_init_exists": (rag_root / "storage" / "__init__.py").exists(),
+                    "cwd_used": str(rag_root),
+                    "pythonpath_expected_prefix": str(rag_root),
+                    "rag_root_entries": rag_root_entries,
+                },
             },
         )
 
