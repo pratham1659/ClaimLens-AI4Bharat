@@ -4,7 +4,7 @@ Vector store operations using PostgreSQL with pgvector.
 """
 
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
@@ -209,6 +209,100 @@ class VectorStore:
             embeddings_with_scores.append((embedding, row.combined_score))
 
         return embeddings_with_scores
+
+    async def keyword_search(
+        self,
+        keyword_query: str,
+        limit: int = 10,
+        document_ids: Optional[List[UUID]] = None,
+    ) -> List[Tuple[Embedding, float]]:
+        """Perform keyword-only fallback search when semantic embedding generation is unavailable."""
+        query = text("""
+            SELECT
+                e.id,
+                e.document_id,
+                e.chunk_text,
+                e.chunk_index,
+                e.embedding,
+                COALESCE(
+                    ts_rank(
+                        to_tsvector('english', e.chunk_text),
+                        websearch_to_tsquery('english', :keyword_query)
+                    ),
+                    0
+                ) AS keyword_score
+            FROM embeddings e
+            WHERE (:doc_filter = false OR e.document_id = ANY(:document_ids))
+              AND (
+                    to_tsvector('english', e.chunk_text) @@ websearch_to_tsquery('english', :keyword_query)
+                    OR e.chunk_text ILIKE :ilike_pattern
+                  )
+            ORDER BY keyword_score DESC, e.chunk_index ASC
+            LIMIT :limit
+        """)
+
+        result = await self.db.execute(
+            query,
+            {
+                "keyword_query": keyword_query,
+                "document_ids": document_ids or [],
+                "doc_filter": document_ids is not None,
+                "ilike_pattern": f"%{keyword_query}%",
+                "limit": limit,
+            },
+        )
+
+        rows = result.fetchall()
+        embeddings_with_scores: List[Tuple[Embedding, float]] = []
+        for row in rows:
+            embedding = Embedding(
+                id=row.id,
+                document_id=row.document_id,
+                chunk_text=row.chunk_text,
+                chunk_index=row.chunk_index,
+                embedding=row.embedding,
+            )
+            embeddings_with_scores.append((embedding, float(row.keyword_score or 0.0)))
+
+        return embeddings_with_scores
+
+    async def debug_nearest_neighbors(
+        self,
+        query_embedding: List[float],
+        limit: int = 5,
+        document_ids: Optional[List[UUID]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return raw nearest-neighbor diagnostics for troubleshooting retrieval quality."""
+        normalized_query_embedding = self._normalize_embedding(query_embedding)
+        distance_expr = Embedding.embedding.cosine_distance(normalized_query_embedding)
+        query = select(
+            Embedding,
+            distance_expr.label("distance"),
+            (1 - distance_expr).label("similarity"),
+        )
+
+        if document_ids:
+            query = query.where(Embedding.document_id.in_(document_ids))
+
+        query = query.order_by(distance_expr).limit(limit)
+        result = await self.db.execute(query)
+
+        rows = result.all()
+        diagnostics: List[Dict[str, Any]] = []
+        for row in rows:
+            emb = row.Embedding
+            diagnostics.append(
+                {
+                    "chunk_id": str(emb.id),
+                    "document_id": str(emb.document_id),
+                    "chunk_index": emb.chunk_index,
+                    "distance": float(row.distance),
+                    "similarity": float(row.similarity),
+                    "chunk_preview": (emb.chunk_text or "")[:200],
+                }
+            )
+
+        return diagnostics
 
     async def delete_document_embeddings(self, document_id: UUID) -> int:
         """

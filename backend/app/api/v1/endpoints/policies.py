@@ -12,6 +12,11 @@ This module provides:
 import logging
 import os
 import re
+import json
+import sys
+import asyncio
+import subprocess
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Body, HTTPException
@@ -55,6 +60,36 @@ class PolicySearchRequest(BaseModel):
     query: str
     document_ids: Optional[List[UUID]] = None
     limit: int = 20
+
+
+class PreindexedIngestRequest(BaseModel):
+    """Request model for triggering rag-system preindexed ingestion."""
+    use_async: bool = True
+    timeout_seconds: int = 900
+
+
+def _resolve_rag_system_root() -> Optional[Path]:
+    env_root = os.getenv("RAG_SYSTEM_ROOT", "").strip()
+    candidates: List[Path] = []
+
+    if env_root:
+        candidates.append(Path(env_root))
+
+    candidates.extend(
+        [
+            Path(__file__).resolve().parents[5] / "rag-system",
+            Path.cwd() / "rag-system",
+            Path("/app/rag-system"),
+            Path("/workspace/rag-system"),
+        ]
+    )
+
+    for candidate in candidates:
+        ingestion_file = candidate / "ingestion" / "pdf_loader.py"
+        if candidate.exists() and ingestion_file.exists():
+            return candidate.resolve()
+
+    return None
 
 
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
@@ -229,12 +264,32 @@ async def search_policies(
             "readiness": readiness,
         }
 
+    debug_probe: Dict[str, Any] = {"nearest_neighbors": []}
+    try:
+        query_embedding = await retriever.embedding_service.generate_embedding(request.query)
+        nearest_neighbors = await retriever.vector_store.debug_nearest_neighbors(
+            query_embedding=query_embedding,
+            limit=min(limit, 5),
+            document_ids=request.document_ids,
+        )
+        debug_probe = {
+            "nearest_neighbors": nearest_neighbors,
+            "document_filter_applied": bool(request.document_ids),
+            "result_count": len(nearest_neighbors),
+        }
+    except Exception as probe_error:
+        debug_probe = {
+            "nearest_neighbors": [],
+            "probe_error": str(probe_error),
+        }
+
     return {
         "results": [],
         "query": request.query,
         "count": 0,
         "mode": retriever.embedding_service.mode,
         "diagnostics": readiness,
+        "debug_probe": debug_probe,
         "hint": (
             "No matches found. Ensure policy embeddings are processed into DB or local FAISS preindexed files are available. "
             "You can verify with GET /api/v1/policies/preindexed/info."
@@ -552,6 +607,86 @@ Please provide a comprehensive answer based on the policy clauses above."""
             "query": query,
             "chunks_retrieved": len(retrieved_chunks)
         }
+    }
+
+
+@router.post(
+    "/preindexed/ingest",
+    response_model=dict,
+    summary="Trigger rag-system preindexed ingestion"
+)
+async def ingest_preindexed_policies(
+    request: PreindexedIngestRequest = Body(default=PreindexedIngestRequest()),
+    current_user: User = Depends(get_current_user),
+):
+    rag_root = _resolve_rag_system_root()
+    if rag_root is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": "rag-system directory was not found for ingestion trigger.",
+                "hint": "Set RAG_SYSTEM_ROOT env var or ensure repo contains rag-system/ alongside backend/.",
+            },
+        )
+
+    script = (
+        "import json\n"
+        "from pathlib import Path\n"
+        "from ingestion.pdf_loader import run_ingestion_pipeline\n"
+        f"indexed = run_ingestion_pipeline(root_dir=Path('.').resolve(), use_async={str(request.use_async)})\n"
+        "print(json.dumps({'indexed_clauses': indexed}))\n"
+    )
+
+    def _run_ingest() -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
+
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(rag_root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=max(60, int(request.timeout_seconds)),
+            check=False,
+        )
+
+    try:
+        completed = await asyncio.to_thread(_run_ingest)
+    except subprocess.TimeoutExpired as timeout_error:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "message": "rag-system ingestion timed out.",
+                "timeout_seconds": max(60, int(request.timeout_seconds)),
+                "stderr": (timeout_error.stderr or "")[-1200:],
+            },
+        )
+
+    if completed.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "rag-system ingestion failed.",
+                "return_code": completed.returncode,
+                "stdout": (completed.stdout or "")[-1200:],
+                "stderr": (completed.stderr or "")[-1200:],
+            },
+        )
+
+    output_lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    parsed_output: Dict[str, Any] = {}
+    if output_lines:
+        try:
+            parsed_output = json.loads(output_lines[-1])
+        except json.JSONDecodeError:
+            parsed_output = {"raw_output": output_lines[-1]}
+
+    return {
+        "success": True,
+        "rag_system_root": str(rag_root),
+        "indexed_clauses": int(parsed_output.get("indexed_clauses", 0)),
+        "use_async": request.use_async,
     }
 
 

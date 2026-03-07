@@ -109,11 +109,12 @@ class BedrockEmbeddingService(BaseEmbeddingService):
             region_name=settings.AWS_REGION,
             model_id=settings.BEDROCK_EMBEDDING_MODEL_ID,
             max_retries=int(os.getenv("BEDROCK_EMBEDDING_MAX_RETRIES", "3")),
+            embedding_dimension=settings.BEDROCK_EMBEDDING_DIMENSION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
         self.model_id = settings.BEDROCK_EMBEDDING_MODEL_ID
-        self.embedding_dimension = 1536
+        self.embedding_dimension = settings.BEDROCK_EMBEDDING_DIMENSION
 
     async def generate_embedding(self, text: str) -> List[float]:
         """

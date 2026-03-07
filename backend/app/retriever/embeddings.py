@@ -33,6 +33,7 @@ class TitanEmbeddingModel:
         model_id: str = "amazon.titan-embed-text-v2:0",
         max_retries: int = 3,
         request_timeout_seconds: int = 30,
+        embedding_dimension: Optional[int] = None,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         aws_session_token: Optional[str] = None,
@@ -47,7 +48,9 @@ class TitanEmbeddingModel:
         self.model_id = model_id
         self.max_retries = max_retries
         self.request_timeout_seconds = request_timeout_seconds
-        self.embedding_dimension = 1536
+        self.embedding_dimension = embedding_dimension or int(
+            os.getenv("BEDROCK_EMBEDDING_DIMENSION", "1024")
+        )
 
         client_kwargs = {
             "service_name": "bedrock-runtime",
@@ -146,7 +149,7 @@ def load_embedding_model(model_size: str = "base") -> TitanEmbeddingModel:
     """
     _ = model_size
 
-    region_name = os.getenv("AWS_REGION", "us-east-1")
+    region_name = os.getenv("BEDROCK_REGION") or os.getenv("AWS_REGION", "us-east-1")
     model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
     max_retries = int(os.getenv("BEDROCK_EMBEDDING_MAX_RETRIES", "3"))
 
@@ -160,6 +163,7 @@ def load_embedding_model(model_size: str = "base") -> TitanEmbeddingModel:
         region_name=region_name,
         model_id=model_id,
         max_retries=max_retries,
+        embedding_dimension=int(os.getenv("BEDROCK_EMBEDDING_DIMENSION", "1024")),
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
         aws_session_token=os.getenv("AWS_SESSION_TOKEN"),

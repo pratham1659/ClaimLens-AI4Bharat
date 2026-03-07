@@ -8,8 +8,8 @@ import pandas as pd
 
 class FaissStore:
     def __init__(self, index_path: Path, metadata_path: Path, dimension: int = 1536):
-        if dimension != 1536:
-            raise ValueError("Titan embedding dimension must be 1536")
+        if dimension <= 0:
+            raise ValueError("Embedding dimension must be a positive integer")
 
         self.index_path = index_path
         self.metadata_path = metadata_path

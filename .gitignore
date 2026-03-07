@@ -169,6 +169,11 @@ models/
 *.gguf
 *.ggml
 
+documents/policies/
+*HDFC optima-secure-revision-pw.pdf
+*icici_complete_health_policy.pdf
+*icici_complete_health.pdf
+
 # FAISS indexes
 faiss_*/
 *.faiss

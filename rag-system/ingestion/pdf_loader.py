@@ -1,5 +1,6 @@
 import asyncio
 import os
+import logging
 from pathlib import Path
 from typing import Dict, List
 
@@ -9,6 +10,9 @@ from ingestion.clause_splitter import extract_clauses
 from ingestion.embedding_service import TitanEmbeddingService
 from storage.s3_client import S3IndexClient
 from vectorstore.faiss_store import FaissStore
+
+
+logger = logging.getLogger(__name__)
 
 
 def infer_insurer_from_filename(filename: str) -> str:
@@ -47,9 +51,12 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     policies_dir = root_dir / "documents" / "policies"
-    index_path = root_dir / "indexes" / "faiss.index"
-    metadata_path = root_dir / "indexes" / "metadata.parquet"
-    region = os.getenv("AWS_REGION", "us-east-1")
+    index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    index_dir = Path(index_dir_raw) if index_dir_raw else (root_dir / "indexes")
+    index_path = index_dir / "faiss.index"
+    metadata_path = index_dir / "metadata.parquet"
+    aws_region = os.getenv("AWS_REGION", "us-east-1")
+    bedrock_region = os.getenv("BEDROCK_REGION") or aws_region
     bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
 
     if not policies_dir.exists():
@@ -69,19 +76,54 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     if not clauses:
         return 0
 
-    embedding_service = TitanEmbeddingService(region_name=region)
+    embedding_service = TitanEmbeddingService(region_name=bedrock_region)
     texts = [clause["text"] for clause in clauses]
-    if use_async:
-        embeddings = asyncio.run(embedding_service.embed_batch_async(texts, concurrency=8))
-    else:
-        embeddings = embedding_service.embed_batch(texts, batch_size=16)
+    batch_size = int(os.getenv("RAG_EMBEDDING_BATCH_SIZE", "16"))
+    concurrency = int(os.getenv("RAG_EMBEDDING_CONCURRENCY", "2"))
 
-    store = FaissStore(index_path=index_path, metadata_path=metadata_path, dimension=1536)
+    if use_async:
+        try:
+            embeddings = asyncio.run(
+                embedding_service.embed_batch_async(texts, concurrency=max(1, concurrency))
+            )
+        except Exception as async_error:
+            logger.warning(
+                "Async embedding failed (%s). Falling back to sequential embedding.",
+                async_error,
+            )
+            embeddings = embedding_service.embed_batch(texts, batch_size=max(1, batch_size))
+    else:
+        embeddings = embedding_service.embed_batch(texts, batch_size=max(1, batch_size))
+
+    store = FaissStore(
+        index_path=index_path,
+        metadata_path=metadata_path,
+        dimension=embedding_service.embedding_dimension,
+    )
     store.load_if_exists()
     store.add_clauses(clauses, embeddings)
-    store.save_local()
+    try:
+        store.save_local()
+    except Exception as save_error:
+        # Common in mounted volumes where container user cannot write.
+        logger.warning(
+            "Primary index write failed at %s (%s). Retrying in /tmp/rag-system-indexes",
+            index_dir,
+            save_error,
+        )
+        tmp_index_dir = Path("/tmp/rag-system-indexes")
+        index_path = tmp_index_dir / "faiss.index"
+        metadata_path = tmp_index_dir / "metadata.parquet"
 
-    s3 = S3IndexClient(bucket=bucket, region_name=region)
+        retry_store = FaissStore(
+            index_path=index_path,
+            metadata_path=metadata_path,
+            dimension=embedding_service.embedding_dimension,
+        )
+        retry_store.add_clauses(clauses, embeddings)
+        retry_store.save_local()
+
+    s3 = S3IndexClient(bucket=bucket, region_name=aws_region)
     s3.upload_index_bundle(index_path, metadata_path)
 
     return len(clauses)
