@@ -216,6 +216,40 @@ def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]
         return []
 
 
+def _deduplicate_retrieval_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove repeated chunks while preserving original ranking order."""
+    deduped: List[Dict[str, Any]] = []
+    seen_chunk_keys = set()
+    seen_content_signatures = set()
+
+    for result in results:
+        doc_id = str(result.get("document_id") or "").strip()
+        chunk_index = result.get("chunk_index")
+
+        chunk_key = None
+        if doc_id and chunk_index is not None:
+            chunk_key = (doc_id, int(chunk_index))
+
+        content = str(result.get("content") or "")
+        normalized_content = " ".join(content.split()).lower()
+        content_signature = normalized_content[:700]
+
+        if chunk_key and chunk_key in seen_chunk_keys:
+            continue
+
+        if content_signature and content_signature in seen_content_signatures:
+            continue
+
+        if chunk_key:
+            seen_chunk_keys.add(chunk_key)
+        if content_signature:
+            seen_content_signatures.add(content_signature)
+
+        deduped.append(result)
+
+    return deduped
+
+
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
     embedding_count_result = await db.execute(select(func.count(Embedding.id)))
     embedding_count = int(embedding_count_result.scalar() or 0)
@@ -378,6 +412,9 @@ async def search_policies(
         top_k=limit,
         use_hybrid=True
     )
+
+    results = _deduplicate_retrieval_results(results)
+    results = results[:limit]
 
     if results:
         return {
@@ -781,16 +818,27 @@ async def ingest_preindexed_policies(
         )
 
     script = (
+        "import os\n"
+        "import sys\n"
         "import json\n"
         "from pathlib import Path\n"
+        "root = Path('.').resolve()\n"
+        "if str(root) not in sys.path:\n"
+        "    sys.path.insert(0, str(root))\n"
         "from ingestion.pdf_loader import run_ingestion_pipeline\n"
-        f"indexed = run_ingestion_pipeline(root_dir=Path('.').resolve(), use_async={str(request.use_async)})\n"
+        f"indexed = run_ingestion_pipeline(root_dir=root, use_async={str(request.use_async)})\n"
         "print(json.dumps({'indexed_clauses': indexed}))\n"
     )
 
     def _run_ingest() -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        rag_pythonpath = str(rag_root)
+        if existing_pythonpath:
+            env["PYTHONPATH"] = f"{rag_pythonpath}:{existing_pythonpath}"
+        else:
+            env["PYTHONPATH"] = rag_pythonpath
 
         return subprocess.run(
             [sys.executable, "-c", script],
@@ -971,6 +1019,8 @@ async def get_preindexed_info(
     # In production, policy search often runs from DB embeddings (pgvector) without local files.
     if db_embeddings_exists:
         info["available"] = True
+        if info["total_clauses"] <= 0:
+            info["total_clauses"] = embedding_rows_in_db
         if info["data_source"] == "none":
             info["data_source"] = "database_embeddings"
 
