@@ -89,15 +89,15 @@ AWS_ENDPOINT_URL=
 USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 EMBEDDING_MODE=bedrock
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
-BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 ```
 
 Notes:
 
 - If `DATABASE_URL` points to `@db:5432`, compose `prod` uses local docker DB service.
 - If using EC2 IAM role, you can leave static AWS keys empty.
-- Keep `BEDROCK_MODEL_ID` as an LLM model (not Titan embedding model).
+- Keep `BEDROCK_MODEL_ID` and `BEDROCK_EMBEDDING_MODEL_ID` aligned to Titan v2 for this architecture.
 
 ---
 

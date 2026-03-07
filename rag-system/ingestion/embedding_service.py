@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import List, Optional
 
@@ -13,21 +14,27 @@ logger = logging.getLogger(__name__)
 class TitanEmbeddingService:
     def __init__(
         self,
-        region_name: str = "us-east-1",
-        model_id: str = "amazon.titan-embed-text-v1",
+        region_name: Optional[str] = None,
+        model_id: Optional[str] = None,
         max_retries: int = 3,
     ):
-        if model_id != "amazon.titan-embed-text-v1":
+        resolved_region = region_name or os.getenv("AWS_REGION", "us-east-1")
+        resolved_model_id = model_id or os.getenv(
+            "BEDROCK_EMBEDDING_MODEL_ID",
+            "amazon.titan-embed-text-v2:0",
+        )
+
+        if resolved_model_id != "amazon.titan-embed-text-v2:0":
             raise ValueError(
-                "Only amazon.titan-embed-text-v1 is supported for this ingestion pipeline"
+                "Only amazon.titan-embed-text-v2:0 is supported for this ingestion pipeline"
             )
 
-        self.region_name = region_name
-        self.model_id = model_id
+        self.region_name = resolved_region
+        self.model_id = resolved_model_id
         self.max_retries = max_retries
         self.embedding_dimension = 1536
 
-        self.bedrock = boto3.client("bedrock-runtime", region_name=region_name)
+        self.bedrock = boto3.client("bedrock-runtime", region_name=resolved_region)
 
     def _invoke_with_retry(self, text: str) -> List[float]:
         last_error: Optional[Exception] = None

@@ -180,7 +180,7 @@ Create a policy file `claimlens-policy.json`:
                 "bedrock:InvokeModelWithResponseStream"
             ],
             "Resource": [
-                "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v1"
+                "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
             ]
         }
     ]
@@ -341,9 +341,7 @@ aws elasticache describe-cache-clusters \
 2. Navigate to **Model access** in the left sidebar
 3. Click **Manage model access**
 4. Enable the following models:
-   - ✅ **Anthropic Claude 3 Haiku** (recommended for cost-efficiency)
-   - ✅ **Anthropic Claude 3 Sonnet** (optional, more capable)
-   - ✅ **Amazon Titan Embeddings** (for vector embeddings)
+    - ✅ **Amazon Titan Embeddings v2** (`amazon.titan-embed-text-v2:0`)
 5. Accept the terms and submit request
 
 > ⏱️ Model access is usually granted within minutes, but can take up to 24 hours.
@@ -354,7 +352,7 @@ aws elasticache describe-cache-clusters \
 # List available models
 aws bedrock list-foundation-models \
     --region us-east-1 \
-    --query 'modelSummaries[?contains(modelId, `claude`)].modelId'
+    --query 'modelSummaries[?contains(modelId, `amazon.titan-embed-text-v2:0`)].modelId'
 ```
 
 ---
@@ -436,8 +434,8 @@ USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 EMBEDDING_MODE=bedrock
 SKIP_MODEL_LOADING=false
-BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
-BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 ```
 
 ### Password Generation Commands

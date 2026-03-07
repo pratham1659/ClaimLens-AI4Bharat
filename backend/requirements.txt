@@ -40,19 +40,9 @@ langchain-aws>=0.1.0
 langchain-core>=0.1.0
 langchain-community>=0.0.20
 langchain-text-splitters>=0.0.1
-langchain-huggingface>=0.0.1
 
 # Vector Store & Embeddings
 faiss-cpu>=1.7.4
-sentence-transformers>=2.2.0
-
-# ML & Deep Learning
-torch>=2.0.0
-transformers>=4.36.0
-accelerate>=0.25.0
-tokenizers>=0.15.0
-safetensors>=0.4.0
-huggingface_hub>=0.20.0
 
 # Async & HTTP
 aiohttp>=3.9.0

@@ -155,8 +155,8 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v1}
-      - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v2:0}
+      - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
     volumes:
       - ./backend/logs:/app/logs
     ports:

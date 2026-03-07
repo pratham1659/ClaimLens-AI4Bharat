@@ -18,4 +18,4 @@ cd backend
 python scripts/titan_faiss_example.py
 ```
 
-The script embeds 5 sample clauses with `amazon.titan-embed-text-v1`, builds a FAISS index, and runs a similarity search.
+The script embeds 5 sample clauses with `amazon.titan-embed-text-v2:0`, builds a FAISS index, and runs a similarity search.

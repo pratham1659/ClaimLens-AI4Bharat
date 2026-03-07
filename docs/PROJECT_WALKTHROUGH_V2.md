@@ -33,7 +33,7 @@ This document consolidates the latest implementation state after migration to th
    - `rag-system/vectorstore/faiss_store.py`
    - Persists to:
      - `rag-system/indexes/faiss.index`
-     - `rag-system/indexes/metadata.pkl`
+    - `rag-system/indexes/metadata.parquet`
 
 5. **S3 Index Sync**
    - `rag-system/storage/s3_client.py`
@@ -90,7 +90,6 @@ This document consolidates the latest implementation state after migration to th
 - Deleted old scripts in previous cleanup pass:
   - `backend/scripts/test_retrieval.py`
   - `backend/scripts/run_evaluation.py`
-  - `backend/scripts/build_faiss_index.py`
 
 ### Intentionally Kept
 

@@ -158,15 +158,13 @@ EMBEDDING_MODE=mock
 Available models:
 | Model | Use Case |
 |-------|----------|
-| `anthropic.claude-3-haiku-20240307-v1:0` | Fast, cost-effective |
-| `anthropic.claude-3-sonnet-20240229-v1:0` | Balanced |
-| `anthropic.claude-3-opus-20240229-v1:0` | Most capable |
+| `amazon.titan-embed-text-v2:0` | Titan embeddings configuration |
 
 ```bash
 USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 EMBEDDING_MODE=bedrock
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
 ```
 
 ## Architecture

@@ -30,17 +30,21 @@ class TitanEmbeddingModel:
     def __init__(
         self,
         region_name: str = "us-east-1",
-        model_id: str = "amazon.titan-embed-text-v1",
+        model_id: str = "amazon.titan-embed-text-v2:0",
         max_retries: int = 3,
         request_timeout_seconds: int = 30,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         aws_session_token: Optional[str] = None,
     ):
+        if model_id != "amazon.titan-embed-text-v2:0":
+            raise ValueError("Only amazon.titan-embed-text-v2:0 is supported")
+
         self.region_name = region_name
         self.model_id = model_id
         self.max_retries = max_retries
         self.request_timeout_seconds = request_timeout_seconds
+        self.embedding_dimension = 1536
 
         client_kwargs = {
             "service_name": "bedrock-runtime",
@@ -78,6 +82,11 @@ class TitanEmbeddingModel:
 
                 if not isinstance(embedding, list) or len(embedding) == 0:
                     raise ValueError("Empty or invalid embedding returned by Bedrock")
+
+                if len(embedding) != self.embedding_dimension:
+                    raise ValueError(
+                        f"Unexpected embedding dimension: {len(embedding)} (expected {self.embedding_dimension})"
+                    )
 
                 return [float(value) for value in embedding]
 
@@ -135,7 +144,7 @@ def load_embedding_model(model_size: str = "base") -> TitanEmbeddingModel:
     _ = model_size
 
     region_name = os.getenv("AWS_REGION", "us-east-1")
-    model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v1")
+    model_id = os.getenv("BEDROCK_EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
     max_retries = int(os.getenv("BEDROCK_EMBEDDING_MAX_RETRIES", "3"))
 
     logger.info(

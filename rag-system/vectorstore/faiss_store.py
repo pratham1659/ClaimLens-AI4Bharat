@@ -42,10 +42,10 @@ class FaissStore:
             loaded = True
 
         if self.metadata_path.exists():
-            self.metadata_df = pd.read_pickle(self.metadata_path)
+            self.metadata_df = pd.read_parquet(self.metadata_path)
             missing = [col for col in self.metadata_columns if col not in self.metadata_df.columns]
             if missing:
-                raise ValueError(f"Metadata pickle missing columns: {missing}")
+                raise ValueError(f"Metadata parquet missing columns: {missing}")
             loaded = True
 
         return loaded
@@ -110,4 +110,4 @@ class FaissStore:
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
         self.metadata_path.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(self.index, str(self.index_path))
-        self.metadata_df.to_pickle(self.metadata_path)
+        self.metadata_df.to_parquet(self.metadata_path, index=False)

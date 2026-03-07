@@ -58,7 +58,7 @@ Simplified architecture focusing on core RAG pipeline demonstration:
         │                │                │
 ┌───────▼──────┐  ┌──────▼──────┐  ┌─────▼──────┐
 │  S3 Storage  │  │  OpenSearch │  │   Bedrock  │
-│  (Documents) │  │  (Vectors)  │  │  (Claude)  │
+│  (Documents) │  │  (Vectors)  │  │ (Reasoning)│
 └──────────────┘  └─────────────┘  └────────────┘
                          │
                   ┌──────▼──────┐
@@ -90,7 +90,7 @@ User uploads discharge summary → Extract clinical data
 → Generate query embedding
 → OpenSearch retrieves top-K policy chunks
 → Construct prompt with retrieved context
-→ Bedrock Claude generates reasoning
+→ Bedrock Titan model generates embedding outputs for retrieval
 → Parse response → Return approval prediction + citations
 ```
 
@@ -101,7 +101,7 @@ User uploads discharge summary → Extract clinical data
 | **S3** | Document storage | Simple, durable file storage |
 | **SageMaker** | Embedding model hosting | BGE-Large for semantic search |
 | **OpenSearch** | Vector database | k-NN search for RAG retrieval |
-| **Bedrock** | LLM reasoning | Claude 3.5 Sonnet for analysis |
+| **Bedrock** | Embeddings | Titan text embeddings for retrieval |
 | **ECS/Fargate** | Backend hosting | Containerized FastAPI app |
 | **SQLite** | Metadata storage | Lightweight, no RDS needed for MVP |
 
@@ -169,7 +169,7 @@ Response:
 - **Embedding Generator**: Calls SageMaker endpoint for BGE-Large embeddings
 - **Vector Search**: Queries OpenSearch k-NN index
 - **Prompt Constructor**: Builds structured prompts with retrieved context
-- **LLM Caller**: Invokes Bedrock Claude API
+- **LLM Caller**: Invokes Bedrock reasoning API
 - **Response Parser**: Extracts approval prediction and clause citations
 
 **API**:

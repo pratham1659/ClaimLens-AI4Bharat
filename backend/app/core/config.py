@@ -57,8 +57,8 @@ class Settings(BaseSettings):
     S3_PRESIGNED_URL_EXPIRY: int = 3600
 
     # AWS Bedrock
-    BEDROCK_MODEL_ID: str = "amazon.titan-embed-text-v1"
-    BEDROCK_EMBEDDING_MODEL_ID: str = "amazon.titan-embed-text-v1"
+    BEDROCK_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
+    BEDROCK_EMBEDDING_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
     BEDROCK_ENABLED: bool = True
 
     # RAG Configuration

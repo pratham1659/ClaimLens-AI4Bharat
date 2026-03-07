@@ -292,9 +292,9 @@ check_dependencies() {
     echo -e "${CYAN}Checking dependencies...${NC}"
     
     # Check if required packages are installed
-    python3 -c "import langchain_huggingface" 2>/dev/null || {
-        echo -e "${YELLOW}Warning: langchain_huggingface not installed${NC}"
-        echo "Run: pip install langchain-huggingface"
+    python3 -c "import boto3" 2>/dev/null || {
+        echo -e "${YELLOW}Warning: boto3 not installed${NC}"
+        echo "Run: pip install boto3"
     }
     
     python3 -c "import faiss" 2>/dev/null || {
@@ -302,9 +302,9 @@ check_dependencies() {
         echo "Run: pip install faiss-cpu"
     }
     
-    python3 -c "import torch" 2>/dev/null || {
-        echo -e "${YELLOW}Warning: torch not installed${NC}"
-        echo "Run: pip install torch"
+    python3 -c "import pypdf" 2>/dev/null || {
+        echo -e "${YELLOW}Warning: pypdf not installed${NC}"
+        echo "Run: pip install pypdf"
     }
 }
 

@@ -1,4 +1,5 @@
 from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -11,10 +12,13 @@ class Retriever:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
         self.index_path = root_dir / "indexes" / "faiss.index"
-        self.metadata_path = root_dir / "indexes" / "metadata.pkl"
+        self.metadata_path = root_dir / "indexes" / "metadata.parquet"
 
-        self.embedding_service = TitanEmbeddingService(region_name="us-east-1")
-        self.s3_client = S3IndexClient(bucket="claimlens-faiss-index-1", region_name="us-east-1")
+        region = os.getenv("AWS_REGION", "us-east-1")
+        bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
+
+        self.embedding_service = TitanEmbeddingService(region_name=region)
+        self.s3_client = S3IndexClient(bucket=bucket, region_name=region)
         self.faiss_store = FaissStore(
             index_path=self.index_path,
             metadata_path=self.metadata_path,

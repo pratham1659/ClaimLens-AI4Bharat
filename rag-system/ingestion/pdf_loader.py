@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -47,7 +48,9 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     policies_dir = root_dir / "documents" / "policies"
     index_path = root_dir / "indexes" / "faiss.index"
-    metadata_path = root_dir / "indexes" / "metadata.pkl"
+    metadata_path = root_dir / "indexes" / "metadata.parquet"
+    region = os.getenv("AWS_REGION", "us-east-1")
+    bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
 
     if not policies_dir.exists():
         return 0
@@ -66,7 +69,7 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     if not clauses:
         return 0
 
-    embedding_service = TitanEmbeddingService(region_name="us-east-1")
+    embedding_service = TitanEmbeddingService(region_name=region)
     texts = [clause["text"] for clause in clauses]
     if use_async:
         embeddings = asyncio.run(embedding_service.embed_batch_async(texts, concurrency=8))
@@ -78,7 +81,7 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     store.add_clauses(clauses, embeddings)
     store.save_local()
 
-    s3 = S3IndexClient(bucket="claimlens-faiss-index-1", region_name="us-east-1")
+    s3 = S3IndexClient(bucket=bucket, region_name=region)
     s3.upload_index_bundle(index_path, metadata_path)
 
     return len(clauses)

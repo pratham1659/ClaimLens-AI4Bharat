@@ -46,7 +46,7 @@ OLLAMA_HOST=http://ollama:11434
 OLLAMA_MODEL=llama3.2:3b
 
 # AWS Bedrock Configuration
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
 BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 
 # Embedding Mode
@@ -193,16 +193,13 @@ This allows full application testing without any AI infrastructure.
 
 ## Production with AWS Bedrock
 
-**AWS Bedrock** provides access to Claude models for production use.
+**AWS Bedrock** uses Amazon Titan embeddings in this setup.
 
-### Available Models
+### Supported Model
 
 | Model | Model ID | Cost/1K tokens | Speed | Quality |
 |-------|----------|----------------|-------|---------|
-| **Claude 3.5 Sonnet** | `anthropic.claude-3-5-sonnet-20241022-v2:0` | $0.003 | Fast | ★★★★★ |
-| **Claude 3 Haiku** | `anthropic.claude-3-haiku-20240307-v1:0` | $0.00025 | ⚡⚡⚡ | ★★★★ |
-| **Claude 3 Sonnet** | `anthropic.claude-3-sonnet-20240229-v1:0` | $0.003 | ⚡⚡ | ★★★★★ |
-| **Claude 3 Opus** | `anthropic.claude-3-opus-20240229-v1:0` | $0.015 | ⚡ | ★★★★★★ |
+| **Amazon Titan Embeddings v2** | `amazon.titan-embed-text-v2:0` | AWS pricing | Fast | Production |
 
 ### Configuration
 
@@ -218,7 +215,7 @@ AWS_ACCESS_KEY_ID=your-access-key
 AWS_SECRET_ACCESS_KEY=your-secret-key
 
 # Model Selection
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
 
 # Embedding Model
 EMBEDDING_MODE=bedrock
@@ -332,7 +329,7 @@ EMBEDDING_MODEL_SIZE=base
 USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 OLLAMA_ENABLED=false
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v2:0
 BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
 EMBEDDING_MODE=bedrock
 ```
@@ -350,15 +347,15 @@ docker restart claimlens-backend
 
 ### LLM Comparison for Insurance Claims
 
-| Feature | Mock | Ollama (llama3.2:3b) | Bedrock (Claude Haiku) |
-|---------|------|----------------------|------------------------|
+| Feature | Mock | Ollama (llama3.2:3b) | Bedrock (Titan v2) |
+|---------|------|----------------------|---------------------|
 | **Setup Time** | Instant | 5 min | 30 min |
 | **Cost** | Free | Free | ~$0.25/1K tokens |
 | **Response Quality** | Simulated | Good | Excellent |
 | **Speed** | Instant | 2-5 sec | 1-2 sec |
 | **Offline** | ✅ | ✅ | ❌ |
-| **Insurance Domain** | ❌ | ★★★ | ★★★★★ |
-| **JSON Parsing** | ✅ | ★★★ | ★★★★★ |
+| **Insurance Domain** | ❌ | ★★★ | ★★★★ |
+| **JSON Parsing** | ✅ | ★★★ | N/A |
 
 ### Decision Guide
 
@@ -378,8 +375,7 @@ docker restart claimlens-backend
 │                                                                  │
 │  Is this for production/customers?                               │
 │  └─ YES → Use AWS BEDROCK                                       │
-│      └─ Cost-effective: Claude 3 Haiku                          │
-│      └─ Best quality: Claude 3.5 Sonnet                         │
+│      └─ Use: amazon.titan-embed-text-v2:0                       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -455,7 +451,7 @@ This keeps policy processing and policy-chat functional instead of failing the r
 |-------------|-------------------|
 | **UI Testing** | Mock LLM + Mock Embeddings |
 | **Local Development** | Ollama (llama3.2:3b) + Local BGE Embeddings |
-| **Staging** | Ollama or Bedrock Haiku |
-| **Production** | Bedrock (Claude 3.5 Sonnet) + Titan Embeddings |
+| **Staging** | Ollama or Bedrock Titan v2 |
+| **Production** | Bedrock (amazon.titan-embed-text-v2:0) |
 
 Start with the recommended setup for your environment, then adjust based on your hardware and quality requirements.

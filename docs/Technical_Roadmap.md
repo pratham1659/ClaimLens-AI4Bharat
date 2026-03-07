@@ -95,7 +95,7 @@ Processing Pipeline
 
 LLM Reasoning Layer  
 	•	Powered by Amazon Bedrock.  
-	•	Model used: Claude Haiku.  
+	•	Model used: Bedrock reasoning model (configurable).  
 	•	Responsibilities:  
 	•	Legal reasoning over retrieved clauses  
 	•	Determining coverage conditions  
@@ -121,18 +121,18 @@ Deploy an end-to-end AWS pipeline:
 	2\.	Generate embeddings using Amazon Titan Embeddings (Bedrock).  
 	3\.	Store index artifacts and metadata in Amazon S3-backed FAISS bundle.  
 	4\.	Implement semantic vector retrieval via FAISS.  
-	5\.	Integrate Claude Haiku (Bedrock) for structured reasoning.  
+	5\.	Integrate Bedrock reasoning model for structured reasoning.  
 	6\.	Expose the system via an API Gateway endpoint.
 
 At the end of 24 hours, we will have:  
 	•	A live API endpoint  
 	•	Real policy documents indexed in FAISS  
 	•	Titan-based embeddings stored and searchable  
-	•	Claude Haiku producing structured JSON coverage decisions
+	•	Bedrock reasoning model producing structured JSON coverage decisions
 
 Deliverable:  
 A working cloud-hosted prototype answering real insurance queries with clause references.
 
-Within the first 24 hours of receiving credits, we will deploy an AWS-native version of our semantic RAG system. We will store policy PDFs in Amazon S3, generate embeddings using Amazon Titan (Bedrock), and store vector index artifacts in a FAISS bundle persisted to S3 for scalable retrieval. We will implement semantic retrieval using FAISS and integrate Claude Haiku (Bedrock) to perform structured legal reasoning over retrieved clauses. The system will be exposed through an API Gateway endpoint.
+Within the first 24 hours of receiving credits, we will deploy an AWS-native version of our semantic RAG system. We will store policy PDFs in Amazon S3, generate embeddings using Amazon Titan (Bedrock), and store vector index artifacts in a FAISS bundle persisted to S3 for scalable retrieval. We will implement semantic retrieval using FAISS and integrate a Bedrock reasoning model to perform structured legal reasoning over retrieved clauses. The system will be exposed through an API Gateway endpoint.
 
 By the end of 24 hours, we will have a live cloud-hosted API that indexes real policy documents, performs semantic retrieval, and generates structured JSON coverage decisions with clause references.  

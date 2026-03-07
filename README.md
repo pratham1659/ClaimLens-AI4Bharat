@@ -49,7 +49,7 @@ claimlens-ai/
 
 - 📄 **Document Ingestion**: Upload discharge summaries, insurance policies, and billing data
 - 🔍 **Medical Entity Extraction**: Automatic extraction of diagnoses, procedures, and medications
-- 🧠 **AI-Powered Analysis**: Claude AI analyzes claims against policy clauses
+- 🧠 **AI-Powered Analysis**: Bedrock-backed AI analyzes claims against policy clauses
 - 📊 **Compliance Scoring**: Get approval likelihood scores with detailed explanations
 - 🔎 **Semantic Search**: Search across policy documents using natural language
 - 📈 **Risk Assessment**: Identify compliance risks with actionable recommendations
@@ -59,7 +59,7 @@ claimlens-ai/
 ### Backend
 - **Framework**: FastAPI (Python 3.11)
 - **Database**: PostgreSQL with pgvector
-- **AI/ML**: AWS Bedrock (Claude, Titan Embeddings)
+- **AI/ML**: AWS Bedrock (Titan embeddings + model-driven reasoning)
 - **Storage**: Amazon S3
 - **Authentication**: JWT with role-based access control
 

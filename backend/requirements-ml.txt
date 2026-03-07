@@ -1,6 +1,5 @@
 # backend/requirements-ml.txt
-# ML dependencies for local embedding models
-# These are only needed when using local embeddings (not AWS Bedrock)
+# ML dependencies for Titan + FAISS retrieval stack
 
 # LangChain & AI
 langchain>=0.1.0
@@ -8,19 +7,9 @@ langchain-aws>=0.1.0
 langchain-core>=0.1.0
 langchain-community>=0.0.20
 langchain-text-splitters>=0.0.1
-langchain-huggingface>=0.0.1
 
 # Vector Store & Embeddings
 faiss-cpu>=1.7.4
-sentence-transformers>=2.2.0
-
-# ML & Deep Learning (CPU-only for smaller image)
-# Note: Install torch separately with CPU-only version
-transformers>=4.36.0
-accelerate>=0.25.0
-tokenizers>=0.15.0
-safetensors>=0.4.0
-huggingface_hub>=0.20.0
 
 # Data Processing (additional)
 pandas>=2.1.0
