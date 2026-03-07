@@ -1,9 +1,8 @@
-# ClaimLens AI
-
 <div align="center">
 
-![ClaimLens Logo](frontend/public/git_logo.png)
-
+<p align="center">
+  <img src="frontend/public/git_logo.png" alt="ClaimLens AI Logo" width="350"/>
+</p>
 
 
 **AI-Powered Insurance Claim Analysis Platform**
