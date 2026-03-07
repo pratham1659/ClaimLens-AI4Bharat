@@ -179,7 +179,10 @@ def format_key_conditions(query: str, clauses: List[str]) -> str:
     if not conditions:
         return ""
 
-    formatted_conditions = "\n".join(f"- {item}" for item in conditions[:4])
+    formatted_conditions = "\n".join(
+        f"- {item[:1].upper() + item[1:] if item else item}"
+        for item in conditions[:4]
+    )
     return "Key conditions visible in retrieved clauses:\n" + formatted_conditions
 
 

@@ -27,6 +27,7 @@ from app.models.document import DocumentType
 from app.models.user import User
 from app.services.document_service import DocumentService
 from app.services.response_formatter import generate_final_response
+from app.llm.prompts import POLICY_CHAT_SYSTEM_PROMPT
 from app.api.deps import get_document_service, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -215,6 +216,40 @@ def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]
         return []
 
 
+def _deduplicate_retrieval_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove repeated chunks while preserving original ranking order."""
+    deduped: List[Dict[str, Any]] = []
+    seen_chunk_keys = set()
+    seen_content_signatures = set()
+
+    for result in results:
+        doc_id = str(result.get("document_id") or "").strip()
+        chunk_index = result.get("chunk_index")
+
+        chunk_key = None
+        if doc_id and chunk_index is not None:
+            chunk_key = (doc_id, int(chunk_index))
+
+        content = str(result.get("content") or "")
+        normalized_content = " ".join(content.split()).lower()
+        content_signature = normalized_content[:700]
+
+        if chunk_key and chunk_key in seen_chunk_keys:
+            continue
+
+        if content_signature and content_signature in seen_content_signatures:
+            continue
+
+        if chunk_key:
+            seen_chunk_keys.add(chunk_key)
+        if content_signature:
+            seen_content_signatures.add(content_signature)
+
+        deduped.append(result)
+
+    return deduped
+
+
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
     embedding_count_result = await db.execute(select(func.count(Embedding.id)))
     embedding_count = int(embedding_count_result.scalar() or 0)
@@ -377,6 +412,9 @@ async def search_policies(
         top_k=limit,
         use_hybrid=True
     )
+
+    results = _deduplicate_retrieval_results(results)
+    results = results[:limit]
 
     if results:
         return {
@@ -602,13 +640,12 @@ async def chat_with_policy(
     llm_client = get_llm_client()
 
     # Build prompt with context
-    system_prompt = """You are an expert insurance policy analyst assistant.
-Answer questions about insurance policies based on the provided context.
-Be precise, cite specific clauses when relevant, and explain in clear language.
-If the context doesn't contain enough information, say so clearly."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Context from policy document:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 Chat history:
 {_format_chat_history(chat_history)}
@@ -714,12 +751,12 @@ async def query_preindexed_policies(
     # Get LLM response
     llm_client = get_llm_client()
 
-    system_prompt = """You are an expert insurance policy analyst.
-Based on the retrieved policy clauses, provide accurate and helpful information.
-Cite specific clause numbers and policy names when available."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Retrieved policy clauses:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 User query: {query}
 
@@ -781,16 +818,27 @@ async def ingest_preindexed_policies(
         )
 
     script = (
+        "import os\n"
+        "import sys\n"
         "import json\n"
         "from pathlib import Path\n"
+        "root = Path('.').resolve()\n"
+        "if str(root) not in sys.path:\n"
+        "    sys.path.insert(0, str(root))\n"
         "from ingestion.pdf_loader import run_ingestion_pipeline\n"
-        f"indexed = run_ingestion_pipeline(root_dir=Path('.').resolve(), use_async={str(request.use_async)})\n"
+        f"indexed = run_ingestion_pipeline(root_dir=root, use_async={str(request.use_async)})\n"
         "print(json.dumps({'indexed_clauses': indexed}))\n"
     )
 
     def _run_ingest() -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        rag_pythonpath = str(rag_root)
+        if existing_pythonpath:
+            env["PYTHONPATH"] = f"{rag_pythonpath}:{existing_pythonpath}"
+        else:
+            env["PYTHONPATH"] = rag_pythonpath
 
         return subprocess.run(
             [sys.executable, "-c", script],
@@ -815,6 +863,12 @@ async def ingest_preindexed_policies(
         )
 
     if completed.returncode != 0:
+        rag_root_entries: List[str] = []
+        try:
+            rag_root_entries = sorted([entry.name for entry in rag_root.iterdir()])
+        except Exception:
+            rag_root_entries = []
+
         raise HTTPException(
             status_code=500,
             detail={
@@ -822,6 +876,16 @@ async def ingest_preindexed_policies(
                 "return_code": completed.returncode,
                 "stdout": (completed.stdout or "")[-1200:],
                 "stderr": (completed.stderr or "")[-1200:],
+                "diagnostics": {
+                    "rag_system_root": str(rag_root),
+                    "rag_system_root_exists": rag_root.exists(),
+                    "ingestion_dir_exists": (rag_root / "ingestion").exists(),
+                    "storage_dir_exists": (rag_root / "storage").exists(),
+                    "storage_init_exists": (rag_root / "storage" / "__init__.py").exists(),
+                    "cwd_used": str(rag_root),
+                    "pythonpath_expected_prefix": str(rag_root),
+                    "rag_root_entries": rag_root_entries,
+                },
             },
         )
 
@@ -971,6 +1035,8 @@ async def get_preindexed_info(
     # In production, policy search often runs from DB embeddings (pgvector) without local files.
     if db_embeddings_exists:
         info["available"] = True
+        if info["total_clauses"] <= 0:
+            info["total_clauses"] = embedding_rows_in_db
         if info["data_source"] == "none":
             info["data_source"] = "database_embeddings"
 
@@ -1087,17 +1153,28 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     plain_language_interpretation = ""
 
     if liability_intent:
-        amount_pattern = re.compile(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|[\d,]+\s*(?:lakhs?|lacs?|crores?)", re.IGNORECASE)
+        amount_pattern = re.compile(
+            r"(?:rs\.?|inr|₹)\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\s*(?:lakhs?|lacs?|crores?)\b",
+            re.IGNORECASE,
+        )
         detected_amounts = []
         for content in matched_contents:
             detected_amounts.extend([m.group(0) for m in amount_pattern.finditer(content)])
 
         if detected_amounts:
             unique_amounts = []
+            seen_amounts = set()
             for amount in detected_amounts:
-                normalized_amount = " ".join(amount.split())
-                if normalized_amount not in unique_amounts:
+                normalized_amount = " ".join(amount.split()).strip(" ,;:")
+                normalized_amount = re.sub(r"^(?:inr|rs\.?)\s*", "Rs. ", normalized_amount, flags=re.IGNORECASE)
+                normalized_amount = re.sub(r"\s+", " ", normalized_amount).strip()
+                dedupe_key = normalized_amount.lower()
+                if not normalized_amount or dedupe_key in seen_amounts:
+                    continue
+                seen_amounts.add(dedupe_key)
+                if re.search(r"\d", normalized_amount):
                     unique_amounts.append(normalized_amount)
+
             amount_text = ", ".join(unique_amounts[:3])
             coverage_explanation = (
                 "Based on the retrieved wording, the insurer’s maximum liability appears linked to the stated monetary limits in the policy terms."

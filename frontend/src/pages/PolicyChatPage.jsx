@@ -324,10 +324,18 @@ export function PolicyChatPage() {
                   <p className="text-sm font-medium text-green-800">
                     {preindexedInfo.total_clauses} clauses available
                   </p>
-                  <p className="text-xs text-green-600 mt-1">
-                    From:{" "}
-                    {preindexedInfo.policies?.join(", ") || "Multiple insurers"}
-                  </p>
+                  <div className="text-xs text-green-600 mt-1">
+                    <p>From:</p>
+                    {preindexedInfo.policies?.length ? (
+                      <ul className="list-disc list-inside mt-1 space-y-0.5">
+                        {preindexedInfo.policies.map((policyName) => (
+                          <li key={policyName}>{policyName}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1">Multiple insurers</p>
+                    )}
+                  </div>
                 </div>
 
                 {!usePreindexed ? (
