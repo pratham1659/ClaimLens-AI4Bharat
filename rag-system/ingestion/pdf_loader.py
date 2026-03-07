@@ -51,10 +51,8 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     policies_dir = root_dir / "documents" / "policies"
-    index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
-    index_dir = Path(index_dir_raw) if index_dir_raw else (root_dir / "indexes")
-    index_path = index_dir / "faiss.index"
-    metadata_path = index_dir / "metadata.parquet"
+    index_path = root_dir / "indexes" / "faiss.index"
+    metadata_path = root_dir / "indexes" / "metadata.parquet"
     aws_region = os.getenv("AWS_REGION", "us-east-1")
     bedrock_region = os.getenv("BEDROCK_REGION") or aws_region
     bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
@@ -102,26 +100,7 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     )
     store.load_if_exists()
     store.add_clauses(clauses, embeddings)
-    try:
-        store.save_local()
-    except Exception as save_error:
-        # Common in mounted volumes where container user cannot write.
-        logger.warning(
-            "Primary index write failed at %s (%s). Retrying in /tmp/rag-system-indexes",
-            index_dir,
-            save_error,
-        )
-        tmp_index_dir = Path("/tmp/rag-system-indexes")
-        index_path = tmp_index_dir / "faiss.index"
-        metadata_path = tmp_index_dir / "metadata.parquet"
-
-        retry_store = FaissStore(
-            index_path=index_path,
-            metadata_path=metadata_path,
-            dimension=embedding_service.embedding_dimension,
-        )
-        retry_store.add_clauses(clauses, embeddings)
-        retry_store.save_local()
+    store.save_local()
 
     s3 = S3IndexClient(bucket=bucket, region_name=aws_region)
     s3.upload_index_bundle(index_path, metadata_path)

@@ -23,7 +23,6 @@ from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from pydantic import BaseModel
 
 from app.schemas.document import DocumentResponse
-from app.schemas.common import SingleResponse
 from app.models.document import DocumentType
 from app.models.user import User
 from app.services.document_service import DocumentService
@@ -90,6 +89,130 @@ def _resolve_rag_system_root() -> Optional[Path]:
             return candidate.resolve()
 
     return None
+
+
+def _search_rag_system_preindexed(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """Search preindexed FAISS bundle from rag-system if available."""
+    rag_root = _resolve_rag_system_root()
+    if rag_root is None:
+        return []
+
+    try:
+        if str(rag_root) not in sys.path:
+            sys.path.insert(0, str(rag_root))
+
+        from retrieval.retriever import Retriever as RagSystemRetriever
+
+        rag_retriever = RagSystemRetriever(root_dir=rag_root)
+        rag_results = rag_retriever.search(query=query, k=top_k)
+
+        mapped_chunks: List[Dict[str, Any]] = []
+        for idx, item in enumerate(rag_results):
+            mapped_chunks.append(
+                {
+                    "chunk_id": str(item.get("clause_id") or f"rag_{idx}"),
+                    "document_id": "",
+                    "chunk_index": int(item.get("rank") or idx),
+                    "content": str(item.get("text") or ""),
+                    "relevance_score": float(item.get("score_l2") or 0.0),
+                    "metadata": {
+                        "insurer": item.get("insurer"),
+                        "policy_name": item.get("policy_name"),
+                        "page": item.get("page"),
+                        "section": item.get("section"),
+                        "source_pdf": item.get("source_pdf"),
+                    },
+                    "source": "rag_system_faiss",
+                }
+            )
+
+        return mapped_chunks
+    except Exception as error:
+        logger.warning("rag-system preindexed retrieval failed: %s", error)
+        return []
+
+
+def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """Fallback lexical search over rag-system metadata.parquet when semantic retrieval is unavailable."""
+    rag_root = _resolve_rag_system_root()
+    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+
+    index_candidates: List[Path] = []
+    if rag_index_dir_raw:
+        index_candidates.append(Path(rag_index_dir_raw))
+    if rag_root is not None:
+        index_candidates.append(rag_root / "indexes")
+    index_candidates.append(Path("/tmp/rag-system-indexes"))
+
+    metadata_file: Optional[Path] = None
+    for candidate in index_candidates:
+        candidate_file = candidate / "metadata.parquet"
+        if candidate_file.exists():
+            metadata_file = candidate_file
+            break
+
+    if metadata_file is None:
+        return []
+
+    try:
+        import pandas as pd
+
+        metadata_df = pd.read_parquet(metadata_file)
+        if metadata_df.empty or "text" not in metadata_df.columns:
+            return []
+
+        normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
+        query_terms = {term for term in normalized_query.split() if len(term) > 2}
+        if not query_terms:
+            query_terms = {normalized_query.strip()} if normalized_query.strip() else set()
+
+        scored_rows: List[Dict[str, Any]] = []
+        for row in metadata_df.to_dict(orient="records"):
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+
+            lowered_text = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text)
+            term_hits = sum(1 for term in query_terms if term and term in lowered_text)
+            phrase_hit = 2 if normalized_query.strip() and normalized_query.strip() in lowered_text else 0
+            score = term_hits + phrase_hit
+            if score <= 0:
+                continue
+
+            scored_rows.append(
+                {
+                    "score": score,
+                    "text": text,
+                    "metadata": row,
+                }
+            )
+
+        scored_rows.sort(key=lambda item: item["score"], reverse=True)
+        mapped_chunks: List[Dict[str, Any]] = []
+        for idx, item in enumerate(scored_rows[: max(1, top_k)]):
+            metadata = item["metadata"]
+            mapped_chunks.append(
+                {
+                    "chunk_id": str(metadata.get("clause_id") or f"rag_meta_{idx}"),
+                    "document_id": "",
+                    "chunk_index": int(metadata.get("chunk_index") or idx),
+                    "content": item["text"],
+                    "relevance_score": float(item["score"]),
+                    "metadata": {
+                        "insurer": metadata.get("insurer"),
+                        "policy_name": metadata.get("policy_name"),
+                        "page": metadata.get("page"),
+                        "section": metadata.get("section"),
+                        "source_pdf": metadata.get("source_pdf"),
+                    },
+                    "source": "rag_metadata_lexical",
+                }
+            )
+
+        return mapped_chunks
+    except Exception as error:
+        logger.warning("rag metadata lexical fallback failed: %s", error)
+        return []
 
 
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
@@ -439,6 +562,16 @@ async def chat_with_policy(
         logger.info("Using local FAISS retriever for pre-indexed policies")
         retrieved_chunks = await retriever._retrieve_local(message, top_k=5)
 
+    # Fallback to rag-system preindexed bundle even when local FAISS mode is disabled.
+    if not retrieved_chunks:
+        logger.info("Using rag-system FAISS fallback for policy chat")
+        retrieved_chunks = _search_rag_system_preindexed(query=message, top_k=5)
+
+    # Final fallback to lexical metadata search when semantic retrieval is unavailable.
+    if not retrieved_chunks:
+        logger.info("Using rag-system metadata lexical fallback for policy chat")
+        retrieved_chunks = _search_rag_metadata_lexical(query=message, top_k=5)
+
     # Build context from retrieved chunks
     context = retriever.build_context(retrieved_chunks)
 
@@ -462,7 +595,7 @@ async def chat_with_policy(
         return {
             "success": False,
             "error": "No policy data available. Please process the document first or use pre-indexed policies.",
-            "hint": "Upload and process a document, or ensure the FAISS index is built."
+            "hint": "Upload and process a document, or run POST /api/v1/policies/preindexed/ingest to build the rag-system FAISS index."
         }
 
     # Get LLM client and generate response
@@ -550,11 +683,29 @@ async def query_preindexed_policies(
     # Retrieve from local FAISS index
     retrieved_chunks = await retriever._retrieve_local(query, top_k=top_k)
 
+    # Fallback to rag-system preindexed bundle if legacy local retriever returns nothing
     if not retrieved_chunks:
+        retrieved_chunks = _search_rag_system_preindexed(query=query, top_k=top_k)
+
+    # Final fallback to lexical metadata search when semantic retrieval is unavailable.
+    if not retrieved_chunks:
+        retrieved_chunks = _search_rag_metadata_lexical(query=query, top_k=top_k)
+
+    if not retrieved_chunks:
+        rag_root = _resolve_rag_system_root()
+        rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+        rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else ((rag_root / "indexes") if rag_root else None)
+
         return {
             "success": False,
             "error": "No pre-indexed policy data found. Please ensure FAISS index is available.",
-            "hint": "Run 'python backend/scripts/main.py' to build the index from data/ folder."
+            "hint": "Run POST /api/v1/policies/preindexed/ingest to build/upload rag-system FAISS index, then retry.",
+            "diagnostics": {
+                "rag_system_root": str(rag_root) if rag_root else None,
+                "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
+                "rag_faiss_exists": bool(rag_index_dir and (rag_index_dir / "faiss.index").exists()),
+                "rag_metadata_exists": bool(rag_index_dir and (rag_index_dir / "metadata.parquet").exists()),
+            },
         }
 
     # Build context
@@ -702,7 +853,21 @@ async def get_preindexed_info(
     """
     Get information about available pre-indexed policy documents.
     """
-    import json
+    ignored_insurer_values = {
+        "unknown",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "nan",
+        "not specified",
+    }
+
+    def _is_valid_insurer(value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        normalized = str(value).strip()
+        return bool(normalized) and normalized.lower() not in ignored_insurer_values
 
     # Check multiple paths for clauses file
     clauses_paths = [
@@ -720,6 +885,27 @@ async def get_preindexed_info(
     alt_faiss_path = "backend/faiss_claimlens_combined_index"
     faiss_exists = os.path.exists(faiss_path) or os.path.exists(alt_faiss_path)
 
+    rag_root = _resolve_rag_system_root()
+    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    rag_index_candidates: List[Path] = []
+    if rag_index_dir_raw:
+        rag_index_candidates.append(Path(rag_index_dir_raw))
+    if rag_root is not None:
+        rag_index_candidates.append(rag_root / "indexes")
+    rag_index_candidates.append(Path("/tmp/rag-system-indexes"))
+
+    rag_index_dir: Optional[Path] = None
+    rag_faiss_exists = False
+    rag_metadata_exists = False
+    for candidate in rag_index_candidates:
+        faiss_candidate = candidate / "faiss.index"
+        metadata_candidate = candidate / "metadata.parquet"
+        if faiss_candidate.exists() or metadata_candidate.exists():
+            rag_index_dir = candidate
+            rag_faiss_exists = faiss_candidate.exists()
+            rag_metadata_exists = metadata_candidate.exists()
+            break
+
     embedding_count_result = await db.execute(select(func.count(Embedding.id)))
     embedding_rows_in_db = int(embedding_count_result.scalar() or 0)
     db_embeddings_exists = embedding_rows_in_db > 0
@@ -727,12 +913,13 @@ async def get_preindexed_info(
     info = {
         "available": False,
         "clauses_file_exists": clauses_file is not None,
-        "faiss_index_exists": faiss_exists,
+        "faiss_index_exists": faiss_exists or rag_faiss_exists,
         "db_embeddings_exists": db_embeddings_exists,
         "embedding_rows_in_db": embedding_rows_in_db,
         "policies": [],
         "total_clauses": 0,
         "data_source": "none",
+        "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
     }
 
     # Try to load clauses info
@@ -745,15 +932,41 @@ async def get_preindexed_info(
                 # Get unique insurers
                 insurers = set()
                 for clause in clauses:
-                    insurer = clause.get("insurer", "Unknown")
-                    insurers.add(insurer)
+                    insurer = clause.get("insurer")
+                    if _is_valid_insurer(insurer):
+                        insurers.add(str(insurer).strip())
 
-                info["policies"] = list(insurers)
+                info["policies"] = sorted(insurers)
                 info["available"] = len(clauses) > 0
                 if info["available"]:
                     info["data_source"] = "preindexed_files"
         except Exception as e:
             logger.error(f"Error loading clauses: {e}")
+
+    # Try to load rag-system metadata parquet for real pre-indexed count/policies.
+    if rag_index_dir and rag_metadata_exists:
+        metadata_file = rag_index_dir / "metadata.parquet"
+        try:
+            import pandas as pd
+
+            metadata_df = pd.read_parquet(metadata_file)
+            if not metadata_df.empty:
+                info["total_clauses"] = int(len(metadata_df))
+                if "insurer" in metadata_df.columns:
+                    insurers = sorted(
+                        {
+                            str(value).strip()
+                            for value in metadata_df["insurer"].dropna().tolist()
+                            if _is_valid_insurer(value)
+                        }
+                    )
+                    if insurers:
+                        info["policies"] = insurers
+
+                info["available"] = True
+                info["data_source"] = "rag_system_faiss"
+        except Exception as e:
+            logger.warning(f"Error loading rag-system metadata parquet: {e}")
 
     # In production, policy search often runs from DB embeddings (pgvector) without local files.
     if db_embeddings_exists:
@@ -934,7 +1147,7 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
                 "The policy wording points toward coverage for this query within the stated terms."
             )
         plain_language_interpretation = (
-            "the final payable amount still depends on limits, waiting periods, deductibles, and exclusions"
+            "you are likely eligible for this benefit, but always verify the exact conditions, limits, and exclusions in your policy schedule"
         )
     else:
         if "definition" in detected_intents:
