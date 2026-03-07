@@ -471,6 +471,28 @@ class DocumentService:
         if not normalized:
             return []
 
+        noise_patterns = [
+            r"^\[\s*page\s*\d+\s*\]$",
+            r"^page\s*\d+$",
+            r"^uin\s*:",
+            r"^policy\s+version\s+year\s*:",
+            r"^insurer\s*:",
+            r"^policy\s+wording(?:\s*\(.*\))?$",
+        ]
+
+        cleaned_lines = []
+        for raw_line in normalized.splitlines():
+            line = re.sub(r"\s+", " ", raw_line.replace("\u200b", " ").replace("\ufeff", " ")).strip()
+            if not line:
+                continue
+            if any(re.match(pattern, line, re.IGNORECASE) for pattern in noise_patterns):
+                continue
+            cleaned_lines.append(line)
+
+        normalized = "\n".join(cleaned_lines).strip()
+        if not normalized:
+            return []
+
         paragraphs = [
             p.strip() for p in re.split(r"\n\s*\n+", normalized)
             if p and p.strip()
