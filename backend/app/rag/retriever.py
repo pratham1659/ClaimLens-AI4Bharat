@@ -235,19 +235,33 @@ class RAGRetriever:
             query_embedding = await self.embedding_service.generate_embedding(query)
 
             # Perform search
+            results = []
             if use_hybrid:
-                results = await self.vector_store.hybrid_search(
-                    query_embedding=query_embedding,
-                    keyword_query=query,
-                    limit=top_k,
-                    document_ids=document_ids,
-                    semantic_weight=semantic_weight
-                )
-            else:
+                try:
+                    results = await self.vector_store.hybrid_search(
+                        query_embedding=query_embedding,
+                        keyword_query=query,
+                        limit=top_k,
+                        document_ids=document_ids,
+                        semantic_weight=semantic_weight
+                    )
+                except Exception as hybrid_error:
+                    logger.warning(
+                        "Hybrid pgvector search failed, falling back to semantic-only search: %s",
+                        hybrid_error,
+                    )
+
+            if not results:
+                min_similarity_raw = os.getenv("POLICY_SEARCH_MIN_SIMILARITY", "")
+                min_similarity = None
+                if min_similarity_raw.strip():
+                    min_similarity = float(min_similarity_raw)
+
                 results = await self.vector_store.similarity_search(
                     query_embedding=query_embedding,
                     limit=top_k,
-                    document_ids=document_ids
+                    document_ids=document_ids,
+                    threshold=min_similarity,
                 )
 
             # Format results

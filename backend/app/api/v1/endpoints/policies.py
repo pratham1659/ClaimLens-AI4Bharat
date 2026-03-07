@@ -561,7 +561,8 @@ Please provide a comprehensive answer based on the policy clauses above."""
     summary="Get info about pre-indexed policies"
 )
 async def get_preindexed_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get information about available pre-indexed policy documents.
@@ -582,13 +583,21 @@ async def get_preindexed_info(
 
     faiss_path = "faiss_claimlens_combined_index"
     alt_faiss_path = "backend/faiss_claimlens_combined_index"
+    faiss_exists = os.path.exists(faiss_path) or os.path.exists(alt_faiss_path)
+
+    embedding_count_result = await db.execute(select(func.count(Embedding.id)))
+    embedding_rows_in_db = int(embedding_count_result.scalar() or 0)
+    db_embeddings_exists = embedding_rows_in_db > 0
 
     info = {
         "available": False,
         "clauses_file_exists": clauses_file is not None,
-        "faiss_index_exists": os.path.exists(faiss_path) or os.path.exists(alt_faiss_path),
+        "faiss_index_exists": faiss_exists,
+        "db_embeddings_exists": db_embeddings_exists,
+        "embedding_rows_in_db": embedding_rows_in_db,
         "policies": [],
-        "total_clauses": 0
+        "total_clauses": 0,
+        "data_source": "none",
     }
 
     # Try to load clauses info
@@ -606,8 +615,16 @@ async def get_preindexed_info(
 
                 info["policies"] = list(insurers)
                 info["available"] = len(clauses) > 0
+                if info["available"]:
+                    info["data_source"] = "preindexed_files"
         except Exception as e:
             logger.error(f"Error loading clauses: {e}")
+
+    # In production, policy search often runs from DB embeddings (pgvector) without local files.
+    if db_embeddings_exists:
+        info["available"] = True
+        if info["data_source"] == "none":
+            info["data_source"] = "database_embeddings"
 
     return info
 

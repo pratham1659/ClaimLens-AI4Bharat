@@ -84,7 +84,7 @@ class VectorStore:
         query_embedding: List[float],
         limit: int = 10,
         document_ids: Optional[List[UUID]] = None,
-        threshold: float = 0.7
+        threshold: Optional[float] = None
     ) -> List[Tuple[Embedding, float]]:
         """
         Perform similarity search.
@@ -93,7 +93,7 @@ class VectorStore:
             query_embedding: Query vector
             limit: Maximum results
             document_ids: Optional filter by document IDs
-            threshold: Minimum similarity threshold
+            threshold: Optional minimum similarity threshold
 
         Returns:
             List of (embedding, similarity_score) tuples
@@ -109,10 +109,13 @@ class VectorStore:
         if document_ids:
             query = query.where(Embedding.document_id.in_(document_ids))
 
-        # Filter by threshold and order by similarity
-        query = query.where(
-            (1 - Embedding.embedding.cosine_distance(normalized_query_embedding)) >= threshold
-        ).order_by(
+        # Optionally filter by threshold, then order by nearest neighbor distance
+        if threshold is not None:
+            query = query.where(
+                (1 - Embedding.embedding.cosine_distance(normalized_query_embedding)) >= threshold
+            )
+
+        query = query.order_by(
             Embedding.embedding.cosine_distance(normalized_query_embedding)
         ).limit(limit)
 
