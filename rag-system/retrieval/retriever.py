@@ -14,7 +14,7 @@ class Retriever:
         self.index_path = root_dir / "indexes" / "faiss.index"
         self.metadata_path = root_dir / "indexes" / "metadata.parquet"
 
-        region = os.getenv("AWS_REGION", "us-east-1")
+        region = os.getenv("AWS_REGION", "ap-south-1")
         bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
 
         self.embedding_service = TitanEmbeddingService(region_name=region)
