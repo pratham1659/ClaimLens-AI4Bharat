@@ -469,7 +469,7 @@ start_containers() {
         echo ""
         echo " LLM: Mock LLM (no AWS costs)"
     else
-        echo "   - Frontend:            http://localhost:80"
+        echo "   - Frontend:            http://localhost:3000"
         echo "   - Backend API:         http://localhost:8000"
         echo "   - Swagger Docs:        http://localhost:8000/docs"
         echo ""

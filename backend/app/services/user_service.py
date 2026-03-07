@@ -149,3 +149,30 @@ class UserService:
 
         logger.info(f"Deactivated user: {user.email}")
         return user
+
+    async def reset_password_with_old(
+        self, email: str, old_password: str, new_password: str
+    ) -> bool:
+        """
+        Reset password by verifying old password.
+
+        Args:
+            email: User email
+            old_password: Current password
+            new_password: New password
+
+        Returns:
+            True if password was reset successfully
+        """
+        user = await self.get_by_email(email)
+        if not user:
+            raise AuthenticationError("Invalid email or password")
+
+        if not verify_password(old_password, user.hashed_password):
+            raise AuthenticationError("Invalid email or password")
+
+        user.hashed_password = get_password_hash(new_password)
+        await self.db.flush()
+
+        logger.info(f"Password reset completed for user: {user.email}")
+        return True

@@ -14,9 +14,9 @@ export function useDocuments() {
   const [uploadProgress, setUploadProgress] = useState({});
 
   const uploadDocument = useCallback(async (claimId, file, documentType) => {
-    const fileId = `${Date.now()}-${file.name}`;
     setUploading(true);
-    setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }));
+    // Use documentType as the key for progress tracking
+    setUploadProgress((prev) => ({ ...prev, [documentType]: 0 }));
 
     try {
       // Always use backend direct upload to avoid browser-to-S3 CORS/preflight issues
@@ -26,11 +26,15 @@ export function useDocuments() {
         file,
       );
       const documentId = directResponse.data.document_id;
-      setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }));
+      setUploadProgress((prev) => ({ ...prev, [documentType]: 60 }));
 
-      // Trigger processing
-      await documentsAPI.process(documentId);
-      setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }));
+      // Trigger processing (async, non-blocking)
+      // Don't wait for processing to complete - it happens in background
+      documentsAPI.process(documentId).catch((error) => {
+        console.error("Document processing error:", error);
+        // Don't show error toast for processing failures - it's async
+      });
+      setUploadProgress((prev) => ({ ...prev, [documentType]: 100 }));
 
       toast.success(`${file.name} uploaded successfully`);
       return documentId;
@@ -39,6 +43,10 @@ export function useDocuments() {
       if (error?.response?.status === 404) {
         toast.error(
           "Direct upload endpoint not found. Restart backend with latest code and try again.",
+        );
+      } else if (error?.code === "ECONNABORTED") {
+        toast.error(
+          "Upload processing timed out. The file is being processed in the background. Please refresh to check status.",
         );
       } else {
         toast.error(message);
@@ -49,7 +57,7 @@ export function useDocuments() {
       setTimeout(() => {
         setUploadProgress((prev) => {
           const newProgress = { ...prev };
-          delete newProgress[fileId];
+          delete newProgress[documentType];
           return newProgress;
         });
       }, 1000);

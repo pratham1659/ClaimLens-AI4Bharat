@@ -92,7 +92,7 @@ async def get_upload_url(
     return DocumentUploadResponse(
         document_id=document.id,
         upload_url=upload_url,
-        expires_in=3600
+        expires_in=43200
     )
 
 
@@ -267,7 +267,7 @@ async def get_download_url(
     """
     url = await document_service.generate_download_url(document_id)
 
-    return {"download_url": url, "expires_in": 3600}
+    return {"download_url": url, "expires_in": 43200}
 
 
 @router.delete(

@@ -29,7 +29,7 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  timeout: 30000,
+  timeout: 60000, // 60 seconds default timeout (increased from 30s for backend operations)
 });
 
 // Request interceptor for adding auth token
@@ -97,6 +97,13 @@ export const authAPI = {
 
   refreshToken: (refreshToken) =>
     api.post("/auth/refresh", { refresh_token: refreshToken }),
+
+  resetPassword: (email, oldPassword, newPassword) =>
+    api.post("/auth/reset-password", {
+      email,
+      old_password: oldPassword,
+      new_password: newPassword,
+    }),
 };
 
 // Claims API
@@ -139,9 +146,12 @@ export const documentsAPI = {
     });
   },
 
-  process: (documentId) => api.post(`/documents/${documentId}/process`),
+  process: (documentId) => 
+    api.post(`/documents/${documentId}/process`, {}, {
+      timeout: 180000, // 3 minutes for document processing (PDF parsing, embedding, etc.)
+    }),
 
-  get: (documentId) => api.get(`/documents/${documentId}`),
+  get: (documentId) => api.get(`/documents/${documentId}`), 
 
   getText: (documentId) => api.get(`/documents/${documentId}/text`),
 

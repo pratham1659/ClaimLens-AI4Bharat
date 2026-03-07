@@ -11,7 +11,8 @@ from app.schemas.user import (
     UserResponse,
     UserLogin,
     TokenResponse,
-    TokenRefresh
+    TokenRefresh,
+    ResetPasswordRequest
 )
 from app.schemas.common import SingleResponse
 from app.services.user_service import UserService
@@ -151,3 +152,26 @@ async def logout(
     # In a production system, you might want to blacklist the token
     # For now, we just return success and let client discard tokens
     return None
+
+
+@router.post(
+    "/reset-password",
+    response_model=SingleResponse[dict],
+    summary="Reset password with old password"
+)
+async def reset_password(
+    request: ResetPasswordRequest,
+    user_service: UserService = Depends(get_user_service)
+):
+    """
+    Reset password by verifying old password.
+    """
+    await user_service.reset_password_with_old(
+        email=request.email,
+        old_password=request.old_password,
+        new_password=request.new_password
+    )
+    return SingleResponse(
+        data={},
+        message="Password reset successfully"
+    )
