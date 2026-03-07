@@ -59,7 +59,7 @@ class DocumentService:
         self.ocr_processor = OCRProcessor()
         self.medical_extractor = MedicalExtractor()
         self.clause_splitter = ClauseSplitter()
-        self.embedding_service = get_embedding_service()
+        self.embedding_service: Optional[EmbeddingService] = None
 
     def _extract_s3_error(self, error: ClientError) -> tuple[str, str]:
         payload = getattr(error, "response", {}) or {}
@@ -421,6 +421,9 @@ class DocumentService:
             return []
 
         try:
+            if self.embedding_service is None:
+                self.embedding_service = get_embedding_service()
+
             embeddings = await self.embedding_service.generate_embeddings_batch(
                 texts=texts,
                 batch_size=10,

@@ -38,7 +38,10 @@ class TitanEmbeddingModel:
         aws_session_token: Optional[str] = None,
     ):
         if model_id != "amazon.titan-embed-text-v2:0":
-            raise ValueError("Only amazon.titan-embed-text-v2:0 is supported")
+            raise ValueError(
+                "Unsupported Bedrock embedding model "
+                f"'{model_id}'. Set BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0"
+            )
 
         self.region_name = region_name
         self.model_id = model_id
