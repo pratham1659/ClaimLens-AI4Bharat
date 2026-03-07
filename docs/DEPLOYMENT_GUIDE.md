@@ -169,8 +169,8 @@ Create a policy file `claimlens-policy.json`:
                 "s3:ListBucket"
             ],
             "Resource": [
-                "arn:aws:s3:::claimlens-documents-*",
-                "arn:aws:s3:::claimlens-documents-*/*"
+                "arn:aws:s3:::claimlens-faiss-index-1",
+                "arn:aws:s3:::claimlens-faiss-index-1/*"
             ]
         },
         {
@@ -180,8 +180,7 @@ Create a policy file `claimlens-policy.json`:
                 "bedrock:InvokeModelWithResponseStream"
             ],
             "Resource": [
-                "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
-                "arn:aws:bedrock:*::foundation-model/amazon.titan-*"
+                "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v1"
             ]
         }
     ]
@@ -191,12 +190,12 @@ Create a policy file `claimlens-policy.json`:
 ```bash
 # Create and attach policy
 aws iam create-policy \
-    --policy-name ClaimLensAppPolicy \
+    --policy-name ClaimLensBedrockPolicy \
     --policy-document file://claimlens-policy.json
 
 aws iam attach-user-policy \
     --user-name claimlens-app \
-    --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/ClaimLensAppPolicy
+    --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/ClaimLensBedrockPolicy
 ```
 
 ---
@@ -205,16 +204,16 @@ aws iam attach-user-policy \
 
 ```bash
 # Create S3 bucket (use your region)
-aws s3 mb s3://claimlens-documents-<your-unique-id> --region ap-south-1
+aws s3 mb s3://claimlens-faiss-index-1 --region ap-south-1
 
 # Enable versioning (recommended)
 aws s3api put-bucket-versioning \
-    --bucket claimlens-documents-<your-unique-id> \
+    --bucket claimlens-faiss-index-1 \
     --versioning-configuration Status=Enabled
 
 # Set CORS for web access
 aws s3api put-bucket-cors \
-    --bucket claimlens-documents-<your-unique-id> \
+    --bucket claimlens-faiss-index-1 \
     --cors-configuration '{
         "CORSRules": [{
             "AllowedHeaders": ["*"],
@@ -425,7 +424,7 @@ AWS_ACCESS_KEY_ID=<your-access-key>
 AWS_SECRET_ACCESS_KEY=<your-secret-key>
 
 # S3
-S3_BUCKET_NAME=claimlens-documents-<your-unique-id>
+S3_BUCKET_NAME=claimlens-faiss-index-1
 USE_LOCALSTACK=false
 S3_ENDPOINT_URL=
 AWS_ENDPOINT_URL=
@@ -437,8 +436,8 @@ USE_MOCK_LLM=false
 BEDROCK_ENABLED=true
 EMBEDDING_MODE=bedrock
 SKIP_MODEL_LOADING=false
-BEDROCK_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
-BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v2:0
+BEDROCK_MODEL_ID=amazon.titan-embed-text-v1
+BEDROCK_EMBEDDING_MODEL_ID=amazon.titan-embed-text-v1
 ```
 
 ### Password Generation Commands

@@ -1,7 +1,8 @@
 boto3
 faiss-cpu
 numpy
+pandas
+pyarrow
 pypdf
-pickle5
 fastapi
 uvicorn

@@ -25,8 +25,8 @@ class Retriever:
 
         self._cached_embed_query = lru_cache(maxsize=512)(self.embedding_service.embed_text)
 
-    def initialize(self):
-        if self._initialized:
+    def initialize(self, force_reload: bool = False):
+        if self._initialized and not force_reload:
             return
 
         if not self.index_path.exists() or not self.metadata_path.exists():
@@ -43,18 +43,22 @@ class Retriever:
 
         results: List[Dict] = []
         for rank, (distance, idx) in enumerate(zip(distances, indices), start=1):
-            if idx < 0 or idx >= len(self.faiss_store.metadata):
+            if idx < 0:
                 continue
 
-            metadata = self.faiss_store.metadata[idx]
+            metadata = self.faiss_store.get_metadata_by_id(idx)
+            if not metadata:
+                continue
             results.append(
                 {
                     "rank": rank,
                     "score_l2": float(distance),
                     "insurer": metadata.get("insurer"),
+                    "policy_name": metadata.get("policy_name"),
                     "clause_id": metadata.get("clause_id"),
                     "text": metadata.get("text"),
                     "page": metadata.get("page"),
+                    "section": metadata.get("section"),
                     "source_pdf": metadata.get("source_pdf"),
                 }
             )

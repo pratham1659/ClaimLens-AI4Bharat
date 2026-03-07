@@ -12,9 +12,11 @@ class SearchResult(BaseModel):
     rank: int
     score_l2: float
     insurer: str | None = None
+    policy_name: str | None = None
     clause_id: str | None = None
     text: str | None = None
     page: int | None = None
+    section: str | None = None
     source_pdf: str | None = None
 
 
@@ -40,5 +42,5 @@ def search(query: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=20)
 @app.post("/ingest")
 def ingest(use_async: bool = True):
     indexed = run_ingestion_pipeline(root_dir=Path(__file__).resolve().parents[1], use_async=use_async)
-    retriever.initialize()
+    retriever.initialize(force_reload=True)
     return {"indexed_clauses": indexed, "index_size": retriever.faiss_store.ntotal}

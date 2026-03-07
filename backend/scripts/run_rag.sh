@@ -34,7 +34,7 @@
 #                     Runs automatically on first database container start.
 #
 # init-localstack.sh - LocalStack initialization script. Creates S3 bucket
-#                      'claimlens-prod-documents-ap-south-1' with versioning and CORS config.
+#                      'claimlens-faiss-index-1' with versioning and CORS config.
 #                      Runs automatically when LocalStack container starts.
 #
 # Usage: ./run_rag.sh [command] [options]
@@ -176,7 +176,7 @@ list_scripts() {
     echo ""
     echo -e "  ${GREEN}init-localstack.sh${NC}"
     echo "    Purpose: LocalStack S3 bucket setup"
-    echo "    Creates: claimlens-prod-documents-ap-south-1 bucket with CORS"
+    echo "    Creates: claimlens-faiss-index-1 bucket with CORS"
     echo "    Runs:    Automatically on LocalStack container start"
     echo "    Command: ./run_rag.sh init-s3"
     echo ""

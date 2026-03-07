@@ -473,7 +473,7 @@ start_containers() {
         echo "   - Backend API:         http://localhost:8000"
         echo "   - Swagger Docs:        http://localhost:8000/docs"
         echo ""
-        echo " LLM: AWS Bedrock (${BEDROCK_MODEL_ID:-anthropic.claude-3-haiku-20240307-v1:0})"
+        echo " LLM: AWS Bedrock (${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v1})"
     fi
     
     echo ""
@@ -827,9 +827,7 @@ aws_setup() {
     
     echo ""
     echo " Available LLM Models (AWS Bedrock):"
-    echo "   - anthropic.claude-3-haiku-20240307-v1:0 (fast)"
-    echo "   - anthropic.claude-3-sonnet-20240229-v1:0 (balanced)"
-    echo "   - anthropic.claude-3-opus-20240229-v1:0 (most capable)"
+    echo "   - amazon.titan-embed-text-v1"
 }
 
 s3_create_bucket() {

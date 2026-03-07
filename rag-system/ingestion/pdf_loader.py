@@ -49,6 +49,9 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     index_path = root_dir / "indexes" / "faiss.index"
     metadata_path = root_dir / "indexes" / "metadata.pkl"
 
+    if not policies_dir.exists():
+        return 0
+
     pages = load_policy_documents(policies_dir)
     clauses: List[Dict] = []
 
@@ -76,7 +79,6 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     store.save_local()
 
     s3 = S3IndexClient(bucket="claimlens-faiss-index-1", region_name="us-east-1")
-    s3.sync_policy_documents(policies_dir)
     s3.upload_index_bundle(index_path, metadata_path)
 
     return len(clauses)

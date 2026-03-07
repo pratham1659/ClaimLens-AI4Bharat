@@ -17,6 +17,11 @@ class TitanEmbeddingService:
         model_id: str = "amazon.titan-embed-text-v1",
         max_retries: int = 3,
     ):
+        if model_id != "amazon.titan-embed-text-v1":
+            raise ValueError(
+                "Only amazon.titan-embed-text-v1 is supported for this ingestion pipeline"
+            )
+
         self.region_name = region_name
         self.model_id = model_id
         self.max_retries = max_retries
