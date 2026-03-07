@@ -2,7 +2,9 @@
 
 <div align="center">
 
-![ClaimLens Logo](docs/images/logo.png)
+![ClaimLens Logo](frontend/public/git_logo.png)
+
+
 
 **AI-Powered Insurance Claim Analysis Platform**
 
