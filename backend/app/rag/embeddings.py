@@ -109,11 +109,12 @@ class BedrockEmbeddingService(BaseEmbeddingService):
             region_name=settings.AWS_REGION,
             model_id=settings.BEDROCK_EMBEDDING_MODEL_ID,
             max_retries=int(os.getenv("BEDROCK_EMBEDDING_MAX_RETRIES", "3")),
+            embedding_dimension=settings.BEDROCK_EMBEDDING_DIMENSION,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
         )
         self.model_id = settings.BEDROCK_EMBEDDING_MODEL_ID
-        self.embedding_dimension = 1536
+        self.embedding_dimension = settings.BEDROCK_EMBEDDING_DIMENSION
 
     async def generate_embedding(self, text: str) -> List[float]:
         """
@@ -311,7 +312,12 @@ def get_embedding_service(force_mode: Optional[str] = None) -> EmbeddingService:
     """
     global _embedding_service_instance
 
-    if _embedding_service_instance is None or force_mode is not None:
-        _embedding_service_instance = EmbeddingService(force_mode=force_mode)
+    # Forced mode should be request-scoped and must not overwrite the global singleton,
+    # otherwise one endpoint (e.g., local/mock fallback) can contaminate all subsequent requests.
+    if force_mode is not None:
+        return EmbeddingService(force_mode=force_mode)
+
+    if _embedding_service_instance is None:
+        _embedding_service_instance = EmbeddingService()
 
     return _embedding_service_instance

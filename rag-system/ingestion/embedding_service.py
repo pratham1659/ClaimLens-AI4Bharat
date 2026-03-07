@@ -17,8 +17,13 @@ class TitanEmbeddingService:
         region_name: Optional[str] = None,
         model_id: Optional[str] = None,
         max_retries: int = 3,
+        embedding_dimension: Optional[int] = None,
     ):
-        resolved_region = region_name or os.getenv("AWS_REGION", "us-east-1")
+        resolved_region = (
+            region_name
+            or os.getenv("BEDROCK_REGION")
+            or os.getenv("AWS_REGION", "us-east-1")
+        )
         resolved_model_id = model_id or os.getenv(
             "BEDROCK_EMBEDDING_MODEL_ID",
             "amazon.titan-embed-text-v2:0",
@@ -32,7 +37,9 @@ class TitanEmbeddingService:
         self.region_name = resolved_region
         self.model_id = resolved_model_id
         self.max_retries = max_retries
-        self.embedding_dimension = 1536
+        self.embedding_dimension = embedding_dimension or int(
+            os.getenv("BEDROCK_EMBEDDING_DIMENSION", "1024")
+        )
 
         self.bedrock = boto3.client("bedrock-runtime", region_name=resolved_region)
 

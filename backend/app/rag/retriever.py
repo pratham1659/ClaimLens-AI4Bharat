@@ -5,6 +5,7 @@ Supports local FAISS retrieval and database-backed vector retrieval modes.
 """
 
 import os
+import re
 import logging
 from typing import List, Dict, Any, Optional
 from uuid import UUID
@@ -230,25 +231,90 @@ class RAGRetriever:
         Returns:
             List of retrieved chunks
         """
+        source_label = "pgvector"
         try:
             # Generate query embedding
             query_embedding = await self.embedding_service.generate_embedding(query)
-
-            # Perform search
-            if use_hybrid:
-                results = await self.vector_store.hybrid_search(
-                    query_embedding=query_embedding,
+        except Exception as embedding_error:
+            logger.warning(
+                "Query embedding generation failed, falling back to keyword search: %s",
+                embedding_error,
+            )
+            try:
+                keyword_results = await self.vector_store.keyword_search(
                     keyword_query=query,
                     limit=top_k,
                     document_ids=document_ids,
-                    semantic_weight=semantic_weight
                 )
-            else:
+
+                retrieved_chunks = []
+                for embedding, score in keyword_results:
+                    retrieved_chunks.append(
+                        {
+                            "chunk_id": str(embedding.id),
+                            "document_id": str(embedding.document_id),
+                            "chunk_index": embedding.chunk_index,
+                            "content": embedding.chunk_text,
+                            "relevance_score": float(score),
+                            "metadata": {},
+                            "source": "keyword_fallback",
+                        }
+                    )
+
+                logger.info(
+                    "Keyword fallback retrieval returned %s chunks",
+                    len(retrieved_chunks),
+                )
+                return retrieved_chunks
+            except Exception as keyword_error:
+                logger.error(
+                    "Keyword fallback retrieval failed after embedding error: %s",
+                    keyword_error,
+                )
+                return []
+
+        try:
+            # Perform search
+            results = []
+            if use_hybrid:
+                try:
+                    results = await self.vector_store.hybrid_search(
+                        query_embedding=query_embedding,
+                        keyword_query=query,
+                        limit=top_k,
+                        document_ids=document_ids,
+                        semantic_weight=semantic_weight
+                    )
+                except Exception as hybrid_error:
+                    logger.warning(
+                        "Hybrid pgvector search failed, falling back to semantic-only search: %s",
+                        hybrid_error,
+                    )
+
+            if not results:
+                min_similarity_raw = os.getenv("POLICY_SEARCH_MIN_SIMILARITY", "")
+                min_similarity = None
+                if min_similarity_raw.strip():
+                    min_similarity = float(min_similarity_raw)
+
                 results = await self.vector_store.similarity_search(
                     query_embedding=query_embedding,
                     limit=top_k,
-                    document_ids=document_ids
+                    document_ids=document_ids,
+                    threshold=min_similarity,
                 )
+
+            # Lexical rerank: boost semantic candidates when chunk text contains
+            # exact query phrase or multiple query terms.
+            if results:
+                reranked = []
+                for embedding, base_score in results:
+                    lexical_boost = self._calculate_lexical_boost(query, embedding.chunk_text)
+                    combined_score = float(base_score) + lexical_boost
+                    reranked.append((embedding, combined_score))
+
+                reranked.sort(key=lambda item: item[1], reverse=True)
+                results = reranked[:top_k]
 
             # Format results
             retrieved_chunks = []
@@ -260,7 +326,7 @@ class RAGRetriever:
                     "content": embedding.chunk_text,
                     "relevance_score": float(score),
                     "metadata": {},
-                    "source": "pgvector"
+                    "source": source_label
                 }
                 retrieved_chunks.append(chunk)
 
@@ -271,6 +337,26 @@ class RAGRetriever:
         except Exception as e:
             logger.error(f"pgvector retrieval failed: {e}")
             return []
+
+    def _calculate_lexical_boost(self, query: str, content: str) -> float:
+        """Compute lexical boost for query/content overlap."""
+        normalized_query = re.sub(r"\s+", " ", str(query or "").strip().lower())
+        normalized_content = re.sub(r"\s+", " ", str(content or "").strip().lower())
+
+        if not normalized_query or not normalized_content:
+            return 0.0
+
+        query_terms = [term for term in re.findall(r"[a-z0-9]+", normalized_query) if len(term) > 2]
+        if not query_terms:
+            return 0.0
+
+        unique_terms = list(dict.fromkeys(query_terms))
+        term_hits = sum(1 for term in unique_terms if term in normalized_content)
+        term_hit_ratio = term_hits / max(1, len(unique_terms))
+        phrase_hit = 1.0 if normalized_query in normalized_content else 0.0
+
+        # Conservative weights so semantic ranking remains primary signal.
+        return (0.20 * term_hit_ratio) + (0.35 * phrase_hit)
 
     async def retrieve_for_claim(
         self,

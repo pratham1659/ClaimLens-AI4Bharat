@@ -43,6 +43,13 @@ COPY requirements-base.txt .
 # Install production dependencies (no PyTorch)
 RUN pip install --no-cache-dir -r requirements-base.txt
 
+# Install lightweight rag-system ingestion/indexing dependencies used by
+# /api/v1/policies/preindexed/ingest endpoint.
+RUN pip install --no-cache-dir \
+    faiss-cpu>=1.7.4 \
+    pandas>=2.1.0 \
+    pyarrow>=14.0.0
+
 # Install LangChain without heavy ML deps
 RUN pip install --no-cache-dir \
     langchain>=0.1.0 \

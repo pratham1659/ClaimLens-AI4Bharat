@@ -12,17 +12,22 @@ This module provides:
 import logging
 import os
 import re
+import json
+import sys
+import asyncio
+import subprocess
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Body, HTTPException
 from pydantic import BaseModel
 
 from app.schemas.document import DocumentResponse
-from app.schemas.common import SingleResponse
 from app.models.document import DocumentType
 from app.models.user import User
 from app.services.document_service import DocumentService
 from app.services.response_formatter import generate_final_response
+from app.llm.prompts import POLICY_CHAT_SYSTEM_PROMPT
 from app.api.deps import get_document_service, get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -55,6 +60,160 @@ class PolicySearchRequest(BaseModel):
     query: str
     document_ids: Optional[List[UUID]] = None
     limit: int = 20
+
+
+class PreindexedIngestRequest(BaseModel):
+    """Request model for triggering rag-system preindexed ingestion."""
+    use_async: bool = True
+    timeout_seconds: int = 900
+
+
+def _resolve_rag_system_root() -> Optional[Path]:
+    env_root = os.getenv("RAG_SYSTEM_ROOT", "").strip()
+    candidates: List[Path] = []
+
+    if env_root:
+        candidates.append(Path(env_root))
+
+    candidates.extend(
+        [
+            Path(__file__).resolve().parents[5] / "rag-system",
+            Path.cwd() / "rag-system",
+            Path("/app/rag-system"),
+            Path("/workspace/rag-system"),
+        ]
+    )
+
+    for candidate in candidates:
+        ingestion_file = candidate / "ingestion" / "pdf_loader.py"
+        if candidate.exists() and ingestion_file.exists():
+            return candidate.resolve()
+
+    return None
+
+
+def _search_rag_system_preindexed(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """Search preindexed FAISS bundle from rag-system if available."""
+    rag_root = _resolve_rag_system_root()
+    if rag_root is None:
+        return []
+
+    try:
+        if str(rag_root) not in sys.path:
+            sys.path.insert(0, str(rag_root))
+
+        from retrieval.retriever import Retriever as RagSystemRetriever
+
+        rag_retriever = RagSystemRetriever(root_dir=rag_root)
+        rag_results = rag_retriever.search(query=query, k=top_k)
+
+        mapped_chunks: List[Dict[str, Any]] = []
+        for idx, item in enumerate(rag_results):
+            mapped_chunks.append(
+                {
+                    "chunk_id": str(item.get("clause_id") or f"rag_{idx}"),
+                    "document_id": "",
+                    "chunk_index": int(item.get("rank") or idx),
+                    "content": str(item.get("text") or ""),
+                    "relevance_score": float(item.get("score_l2") or 0.0),
+                    "metadata": {
+                        "insurer": item.get("insurer"),
+                        "policy_name": item.get("policy_name"),
+                        "page": item.get("page"),
+                        "section": item.get("section"),
+                        "source_pdf": item.get("source_pdf"),
+                    },
+                    "source": "rag_system_faiss",
+                }
+            )
+
+        return mapped_chunks
+    except Exception as error:
+        logger.warning("rag-system preindexed retrieval failed: %s", error)
+        return []
+
+
+def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """Fallback lexical search over rag-system metadata.parquet when semantic retrieval is unavailable."""
+    rag_root = _resolve_rag_system_root()
+    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+
+    index_candidates: List[Path] = []
+    if rag_index_dir_raw:
+        index_candidates.append(Path(rag_index_dir_raw))
+    if rag_root is not None:
+        index_candidates.append(rag_root / "indexes")
+    index_candidates.append(Path("/tmp/rag-system-indexes"))
+
+    metadata_file: Optional[Path] = None
+    for candidate in index_candidates:
+        candidate_file = candidate / "metadata.parquet"
+        if candidate_file.exists():
+            metadata_file = candidate_file
+            break
+
+    if metadata_file is None:
+        return []
+
+    try:
+        import pandas as pd
+
+        metadata_df = pd.read_parquet(metadata_file)
+        if metadata_df.empty or "text" not in metadata_df.columns:
+            return []
+
+        normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
+        query_terms = {term for term in normalized_query.split() if len(term) > 2}
+        if not query_terms:
+            query_terms = {normalized_query.strip()} if normalized_query.strip() else set()
+
+        scored_rows: List[Dict[str, Any]] = []
+        for row in metadata_df.to_dict(orient="records"):
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+
+            lowered_text = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text)
+            term_hits = sum(1 for term in query_terms if term and term in lowered_text)
+            phrase_hit = 2 if normalized_query.strip() and normalized_query.strip() in lowered_text else 0
+            score = term_hits + phrase_hit
+            if score <= 0:
+                continue
+
+            scored_rows.append(
+                {
+                    "score": score,
+                    "text": text,
+                    "metadata": row,
+                }
+            )
+
+        scored_rows.sort(key=lambda item: item["score"], reverse=True)
+        mapped_chunks: List[Dict[str, Any]] = []
+        for idx, item in enumerate(scored_rows[: max(1, top_k)]):
+            metadata = item["metadata"]
+            mapped_chunks.append(
+                {
+                    "chunk_id": str(metadata.get("clause_id") or f"rag_meta_{idx}"),
+                    "document_id": "",
+                    "chunk_index": int(metadata.get("chunk_index") or idx),
+                    "content": item["text"],
+                    "relevance_score": float(item["score"]),
+                    "metadata": {
+                        "insurer": metadata.get("insurer"),
+                        "policy_name": metadata.get("policy_name"),
+                        "page": metadata.get("page"),
+                        "section": metadata.get("section"),
+                        "source_pdf": metadata.get("source_pdf"),
+                    },
+                    "source": "rag_metadata_lexical",
+                }
+            )
+
+        return mapped_chunks
+    except Exception as error:
+        logger.warning("rag metadata lexical fallback failed: %s", error)
+        return []
 
 
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
@@ -229,12 +388,32 @@ async def search_policies(
             "readiness": readiness,
         }
 
+    debug_probe: Dict[str, Any] = {"nearest_neighbors": []}
+    try:
+        query_embedding = await retriever.embedding_service.generate_embedding(request.query)
+        nearest_neighbors = await retriever.vector_store.debug_nearest_neighbors(
+            query_embedding=query_embedding,
+            limit=min(limit, 5),
+            document_ids=request.document_ids,
+        )
+        debug_probe = {
+            "nearest_neighbors": nearest_neighbors,
+            "document_filter_applied": bool(request.document_ids),
+            "result_count": len(nearest_neighbors),
+        }
+    except Exception as probe_error:
+        debug_probe = {
+            "nearest_neighbors": [],
+            "probe_error": str(probe_error),
+        }
+
     return {
         "results": [],
         "query": request.query,
         "count": 0,
         "mode": retriever.embedding_service.mode,
         "diagnostics": readiness,
+        "debug_probe": debug_probe,
         "hint": (
             "No matches found. Ensure policy embeddings are processed into DB or local FAISS preindexed files are available. "
             "You can verify with GET /api/v1/policies/preindexed/info."
@@ -384,6 +563,16 @@ async def chat_with_policy(
         logger.info("Using local FAISS retriever for pre-indexed policies")
         retrieved_chunks = await retriever._retrieve_local(message, top_k=5)
 
+    # Fallback to rag-system preindexed bundle even when local FAISS mode is disabled.
+    if not retrieved_chunks:
+        logger.info("Using rag-system FAISS fallback for policy chat")
+        retrieved_chunks = _search_rag_system_preindexed(query=message, top_k=5)
+
+    # Final fallback to lexical metadata search when semantic retrieval is unavailable.
+    if not retrieved_chunks:
+        logger.info("Using rag-system metadata lexical fallback for policy chat")
+        retrieved_chunks = _search_rag_metadata_lexical(query=message, top_k=5)
+
     # Build context from retrieved chunks
     context = retriever.build_context(retrieved_chunks)
 
@@ -407,20 +596,19 @@ async def chat_with_policy(
         return {
             "success": False,
             "error": "No policy data available. Please process the document first or use pre-indexed policies.",
-            "hint": "Upload and process a document, or ensure the FAISS index is built."
+            "hint": "Upload and process a document, or run POST /api/v1/policies/preindexed/ingest to build the rag-system FAISS index."
         }
 
     # Get LLM client and generate response
     llm_client = get_llm_client()
 
     # Build prompt with context
-    system_prompt = """You are an expert insurance policy analyst assistant.
-Answer questions about insurance policies based on the provided context.
-Be precise, cite specific clauses when relevant, and explain in clear language.
-If the context doesn't contain enough information, say so clearly."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Context from policy document:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 Chat history:
 {_format_chat_history(chat_history)}
@@ -495,11 +683,29 @@ async def query_preindexed_policies(
     # Retrieve from local FAISS index
     retrieved_chunks = await retriever._retrieve_local(query, top_k=top_k)
 
+    # Fallback to rag-system preindexed bundle if legacy local retriever returns nothing
     if not retrieved_chunks:
+        retrieved_chunks = _search_rag_system_preindexed(query=query, top_k=top_k)
+
+    # Final fallback to lexical metadata search when semantic retrieval is unavailable.
+    if not retrieved_chunks:
+        retrieved_chunks = _search_rag_metadata_lexical(query=query, top_k=top_k)
+
+    if not retrieved_chunks:
+        rag_root = _resolve_rag_system_root()
+        rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+        rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else ((rag_root / "indexes") if rag_root else None)
+
         return {
             "success": False,
             "error": "No pre-indexed policy data found. Please ensure FAISS index is available.",
-            "hint": "Run 'python backend/scripts/main.py' to build the index from data/ folder."
+            "hint": "Run POST /api/v1/policies/preindexed/ingest to build/upload rag-system FAISS index, then retry.",
+            "diagnostics": {
+                "rag_system_root": str(rag_root) if rag_root else None,
+                "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
+                "rag_faiss_exists": bool(rag_index_dir and (rag_index_dir / "faiss.index").exists()),
+                "rag_metadata_exists": bool(rag_index_dir and (rag_index_dir / "metadata.parquet").exists()),
+            },
         }
 
     # Build context
@@ -508,12 +714,12 @@ async def query_preindexed_policies(
     # Get LLM response
     llm_client = get_llm_client()
 
-    system_prompt = """You are an expert insurance policy analyst.
-Based on the retrieved policy clauses, provide accurate and helpful information.
-Cite specific clause numbers and policy names when available."""
+    system_prompt = POLICY_CHAT_SYSTEM_PROMPT
 
     user_prompt = f"""Retrieved policy clauses:
 {context}
+
+Supporting clauses retrieved: {len(retrieved_chunks)}
 
 User query: {query}
 
@@ -555,18 +761,113 @@ Please provide a comprehensive answer based on the policy clauses above."""
     }
 
 
+@router.post(
+    "/preindexed/ingest",
+    response_model=dict,
+    summary="Trigger rag-system preindexed ingestion"
+)
+async def ingest_preindexed_policies(
+    request: PreindexedIngestRequest = Body(default=PreindexedIngestRequest()),
+    current_user: User = Depends(get_current_user),
+):
+    rag_root = _resolve_rag_system_root()
+    if rag_root is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "message": "rag-system directory was not found for ingestion trigger.",
+                "hint": "Set RAG_SYSTEM_ROOT env var or ensure repo contains rag-system/ alongside backend/.",
+            },
+        )
+
+    script = (
+        "import json\n"
+        "from pathlib import Path\n"
+        "from ingestion.pdf_loader import run_ingestion_pipeline\n"
+        f"indexed = run_ingestion_pipeline(root_dir=Path('.').resolve(), use_async={str(request.use_async)})\n"
+        "print(json.dumps({'indexed_clauses': indexed}))\n"
+    )
+
+    def _run_ingest() -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
+
+        return subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=str(rag_root),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=max(60, int(request.timeout_seconds)),
+            check=False,
+        )
+
+    try:
+        completed = await asyncio.to_thread(_run_ingest)
+    except subprocess.TimeoutExpired as timeout_error:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "message": "rag-system ingestion timed out.",
+                "timeout_seconds": max(60, int(request.timeout_seconds)),
+                "stderr": (timeout_error.stderr or "")[-1200:],
+            },
+        )
+
+    if completed.returncode != 0:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "rag-system ingestion failed.",
+                "return_code": completed.returncode,
+                "stdout": (completed.stdout or "")[-1200:],
+                "stderr": (completed.stderr or "")[-1200:],
+            },
+        )
+
+    output_lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    parsed_output: Dict[str, Any] = {}
+    if output_lines:
+        try:
+            parsed_output = json.loads(output_lines[-1])
+        except json.JSONDecodeError:
+            parsed_output = {"raw_output": output_lines[-1]}
+
+    return {
+        "success": True,
+        "rag_system_root": str(rag_root),
+        "indexed_clauses": int(parsed_output.get("indexed_clauses", 0)),
+        "use_async": request.use_async,
+    }
+
+
 @router.get(
     "/preindexed/info",
     response_model=dict,
     summary="Get info about pre-indexed policies"
 )
 async def get_preindexed_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get information about available pre-indexed policy documents.
     """
-    import json
+    ignored_insurer_values = {
+        "unknown",
+        "n/a",
+        "na",
+        "none",
+        "null",
+        "nan",
+        "not specified",
+    }
+
+    def _is_valid_insurer(value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        normalized = str(value).strip()
+        return bool(normalized) and normalized.lower() not in ignored_insurer_values
 
     # Check multiple paths for clauses file
     clauses_paths = [
@@ -582,13 +883,43 @@ async def get_preindexed_info(
 
     faiss_path = "faiss_claimlens_combined_index"
     alt_faiss_path = "backend/faiss_claimlens_combined_index"
+    faiss_exists = os.path.exists(faiss_path) or os.path.exists(alt_faiss_path)
+
+    rag_root = _resolve_rag_system_root()
+    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    rag_index_candidates: List[Path] = []
+    if rag_index_dir_raw:
+        rag_index_candidates.append(Path(rag_index_dir_raw))
+    if rag_root is not None:
+        rag_index_candidates.append(rag_root / "indexes")
+    rag_index_candidates.append(Path("/tmp/rag-system-indexes"))
+
+    rag_index_dir: Optional[Path] = None
+    rag_faiss_exists = False
+    rag_metadata_exists = False
+    for candidate in rag_index_candidates:
+        faiss_candidate = candidate / "faiss.index"
+        metadata_candidate = candidate / "metadata.parquet"
+        if faiss_candidate.exists() or metadata_candidate.exists():
+            rag_index_dir = candidate
+            rag_faiss_exists = faiss_candidate.exists()
+            rag_metadata_exists = metadata_candidate.exists()
+            break
+
+    embedding_count_result = await db.execute(select(func.count(Embedding.id)))
+    embedding_rows_in_db = int(embedding_count_result.scalar() or 0)
+    db_embeddings_exists = embedding_rows_in_db > 0
 
     info = {
         "available": False,
         "clauses_file_exists": clauses_file is not None,
-        "faiss_index_exists": os.path.exists(faiss_path) or os.path.exists(alt_faiss_path),
+        "faiss_index_exists": faiss_exists or rag_faiss_exists,
+        "db_embeddings_exists": db_embeddings_exists,
+        "embedding_rows_in_db": embedding_rows_in_db,
         "policies": [],
-        "total_clauses": 0
+        "total_clauses": 0,
+        "data_source": "none",
+        "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
     }
 
     # Try to load clauses info
@@ -601,13 +932,47 @@ async def get_preindexed_info(
                 # Get unique insurers
                 insurers = set()
                 for clause in clauses:
-                    insurer = clause.get("insurer", "Unknown")
-                    insurers.add(insurer)
+                    insurer = clause.get("insurer")
+                    if _is_valid_insurer(insurer):
+                        insurers.add(str(insurer).strip())
 
-                info["policies"] = list(insurers)
+                info["policies"] = sorted(insurers)
                 info["available"] = len(clauses) > 0
+                if info["available"]:
+                    info["data_source"] = "preindexed_files"
         except Exception as e:
             logger.error(f"Error loading clauses: {e}")
+
+    # Try to load rag-system metadata parquet for real pre-indexed count/policies.
+    if rag_index_dir and rag_metadata_exists:
+        metadata_file = rag_index_dir / "metadata.parquet"
+        try:
+            import pandas as pd
+
+            metadata_df = pd.read_parquet(metadata_file)
+            if not metadata_df.empty:
+                info["total_clauses"] = int(len(metadata_df))
+                if "insurer" in metadata_df.columns:
+                    insurers = sorted(
+                        {
+                            str(value).strip()
+                            for value in metadata_df["insurer"].dropna().tolist()
+                            if _is_valid_insurer(value)
+                        }
+                    )
+                    if insurers:
+                        info["policies"] = insurers
+
+                info["available"] = True
+                info["data_source"] = "rag_system_faiss"
+        except Exception as e:
+            logger.warning(f"Error loading rag-system metadata parquet: {e}")
+
+    # In production, policy search often runs from DB embeddings (pgvector) without local files.
+    if db_embeddings_exists:
+        info["available"] = True
+        if info["data_source"] == "none":
+            info["data_source"] = "database_embeddings"
 
     return info
 
@@ -722,17 +1087,28 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     plain_language_interpretation = ""
 
     if liability_intent:
-        amount_pattern = re.compile(r"(?:rs\.?|inr|₹)\s*[\d,]+(?:\.\d+)?|[\d,]+\s*(?:lakhs?|lacs?|crores?)", re.IGNORECASE)
+        amount_pattern = re.compile(
+            r"(?:rs\.?|inr|₹)\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\s*(?:lakhs?|lacs?|crores?)\b",
+            re.IGNORECASE,
+        )
         detected_amounts = []
         for content in matched_contents:
             detected_amounts.extend([m.group(0) for m in amount_pattern.finditer(content)])
 
         if detected_amounts:
             unique_amounts = []
+            seen_amounts = set()
             for amount in detected_amounts:
-                normalized_amount = " ".join(amount.split())
-                if normalized_amount not in unique_amounts:
+                normalized_amount = " ".join(amount.split()).strip(" ,;:")
+                normalized_amount = re.sub(r"^(?:inr|rs\.?)\s*", "Rs. ", normalized_amount, flags=re.IGNORECASE)
+                normalized_amount = re.sub(r"\s+", " ", normalized_amount).strip()
+                dedupe_key = normalized_amount.lower()
+                if not normalized_amount or dedupe_key in seen_amounts:
+                    continue
+                seen_amounts.add(dedupe_key)
+                if re.search(r"\d", normalized_amount):
                     unique_amounts.append(normalized_amount)
+
             amount_text = ", ".join(unique_amounts[:3])
             coverage_explanation = (
                 "Based on the retrieved wording, the insurer’s maximum liability appears linked to the stated monetary limits in the policy terms."
@@ -782,7 +1158,7 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
                 "The policy wording points toward coverage for this query within the stated terms."
             )
         plain_language_interpretation = (
-            "the final payable amount still depends on limits, waiting periods, deductibles, and exclusions"
+            "you are likely eligible for this benefit, but always verify the exact conditions, limits, and exclusions in your policy schedule"
         )
     else:
         if "definition" in detected_intents:

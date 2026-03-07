@@ -99,6 +99,7 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-claimlens}
       - REDIS_URL=redis://redis:6379/0
+      - RAG_SYSTEM_ROOT=/app/rag-system
       - ENVIRONMENT=development
       - DEBUG=true
       # Local mode - Mock LLM, no model loading
@@ -107,10 +108,12 @@ services:
       - BEDROCK_ENABLED=false
       - SKIP_MODEL_LOADING=true
       - EMBEDDING_MODE=mock
+      - BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
       - S3_ENDPOINT_URL=http://localstack:4566
       - AWS_ENDPOINT_URL=http://localstack:4566
     volumes:
       - ./backend:/app
+      - ./rag-system:/app/rag-system
       - ./backend/logs:/app/logs
       - ./data:/app/data
     ports:
@@ -142,6 +145,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - SECRET_KEY=${SECRET_KEY}
+      - RAG_SYSTEM_ROOT=/app/rag-system
       - ENVIRONMENT=production
       - DEBUG=false
       # Production mode - AWS Bedrock
@@ -152,12 +156,14 @@ services:
       - BEDROCK_ENABLED=true
       - EMBEDDING_MODE=bedrock
       - AWS_REGION=${AWS_REGION:-ap-south-1}
+      - BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME:-claimlens-faiss-index-1}
       - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v2:0}
       - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
     volumes:
+      - ./rag-system:/app/rag-system
       - ./backend/logs:/app/logs
     ports:
       - "8000:8000"

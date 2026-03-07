@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import List, Optional, Set
 
 
@@ -101,15 +102,15 @@ def format_policy_reference(query: str, clauses: List[str]) -> str:
         return ""
 
     summarized = []
-    for clause in relevant_clauses:
+    for clause in relevant_clauses[:2]:
         snippet = _summarize_clause(clause)
         if snippet:
-            summarized.append(f'"{snippet}"')
+            summarized.append(f'- "{snippet}"')
 
     if not summarized:
         return ""
 
-    return "According to the policy wording I found:\n\n" + "\n".join(summarized)
+    return "Relevant policy wording:\n" + "\n".join(summarized)
 
 
 def format_interpretation(text: str) -> str:
@@ -119,6 +120,70 @@ def format_interpretation(text: str) -> str:
             "This should be interpreted along with the policy schedule, limits, exclusions, and applicable waiting periods."
         )
     return f"In simple terms, {sentence[0].lower() + sentence[1:] if len(sentence) > 1 else sentence.lower()}"
+
+
+def format_key_conditions(query: str, clauses: List[str]) -> str:
+    relevant_clauses = _select_relevant_clauses(query, clauses)
+    if not relevant_clauses:
+        relevant_clauses = [
+            " ".join((clause or "").split()).strip()
+            for clause in clauses[:1]
+            if " ".join((clause or "").split()).strip()
+        ]
+
+    if not relevant_clauses:
+        return ""
+
+    joined = "\n".join(relevant_clauses).lower()
+    if not joined.strip():
+        return ""
+
+    conditions: List[str] = []
+
+    day_matches = re.findall(r"\b\d{1,3}\s*days?\b", joined)
+    if day_matches:
+        unique_days = []
+        for value in day_matches:
+            normalized = " ".join(value.split())
+            if normalized not in unique_days:
+                unique_days.append(normalized)
+        conditions.append(f"timelines mentioned: {', '.join(unique_days[:3])}")
+
+    month_matches = re.findall(r"\b\d{1,3}\s*months?\b", joined)
+    if month_matches:
+        unique_months = []
+        for value in month_matches:
+            normalized = " ".join(value.split())
+            if normalized not in unique_months:
+                unique_months.append(normalized)
+        conditions.append(f"duration windows mentioned: {', '.join(unique_months[:3])}")
+
+    amount_matches = re.findall(r"(?:rs\.?|inr|₹)\s*\d[\d,]*(?:\.\d+)?|\b\d[\d,]*\s*(?:lakhs?|lacs?|crores?)\b", joined)
+    if amount_matches:
+        unique_amounts = []
+        for value in amount_matches:
+            normalized = " ".join(value.split())
+            if normalized not in unique_amounts:
+                unique_amounts.append(normalized)
+        conditions.append(f"monetary limits referenced: {', '.join(unique_amounts[:3])}")
+
+    keyword_map = {
+        "waiting period applies": ["waiting period", "pre-existing", "pre existing"],
+        "exclusions are referenced": ["excluded", "not covered", "not payable", "exclusion"],
+        "cashless/network hospital conditions are referenced": ["cashless", "network hospital"],
+    }
+    for label, tokens in keyword_map.items():
+        if any(token in joined for token in tokens):
+            conditions.append(label)
+
+    if not conditions:
+        return ""
+
+    formatted_conditions = "\n".join(
+        f"- {item[:1].upper() + item[1:] if item else item}"
+        for item in conditions[:4]
+    )
+    return "Key conditions visible in retrieved clauses:\n" + formatted_conditions
 
 
 def format_followup(query: str) -> str:
@@ -144,17 +209,17 @@ def generate_final_response(
     plain_language_interpretation: str,
     follow_up: Optional[str] = None,
 ) -> str:
-    acknowledgement = format_acknowledgement(query)
     explanation = _ensure_sentence(coverage_explanation)
     interpretation = format_interpretation(plain_language_interpretation)
     policy_reference = format_policy_reference(query, clauses)
-    followup_text = _ensure_sentence(follow_up) if follow_up else _ensure_sentence(format_followup(query))
+    key_conditions = format_key_conditions(query, clauses)
+    followup_text = _ensure_sentence(follow_up) if follow_up else ""
 
     sections = [
-        acknowledgement,
         explanation,
         interpretation,
         policy_reference,
+        key_conditions,
         followup_text,
     ]
     return "\n\n".join([section for section in sections if section])

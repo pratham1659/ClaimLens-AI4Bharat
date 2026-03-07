@@ -59,7 +59,7 @@ class DocumentService:
         self.ocr_processor = OCRProcessor()
         self.medical_extractor = MedicalExtractor()
         self.clause_splitter = ClauseSplitter()
-        self.embedding_service = get_embedding_service()
+        self.embedding_service: Optional[EmbeddingService] = None
 
     def _extract_s3_error(self, error: ClientError) -> tuple[str, str]:
         payload = getattr(error, "response", {}) or {}
@@ -421,6 +421,9 @@ class DocumentService:
             return []
 
         try:
+            if self.embedding_service is None:
+                self.embedding_service = get_embedding_service()
+
             embeddings = await self.embedding_service.generate_embeddings_batch(
                 texts=texts,
                 batch_size=10,
@@ -468,6 +471,28 @@ class DocumentService:
     def _fallback_policy_chunks(self, text: str, max_words: int = 160) -> List[str]:
         """Fallback chunking for policy text when structured clause splitting yields no results."""
         normalized = (text or "").strip()
+        if not normalized:
+            return []
+
+        noise_patterns = [
+            r"^\[\s*page\s*\d+\s*\]$",
+            r"^page\s*\d+$",
+            r"^uin\s*:",
+            r"^policy\s+version\s+year\s*:",
+            r"^insurer\s*:",
+            r"^policy\s+wording(?:\s*\(.*\))?$",
+        ]
+
+        cleaned_lines = []
+        for raw_line in normalized.splitlines():
+            line = re.sub(r"\s+", " ", raw_line.replace("\u200b", " ").replace("\ufeff", " ")).strip()
+            if not line:
+                continue
+            if any(re.match(pattern, line, re.IGNORECASE) for pattern in noise_patterns):
+                continue
+            cleaned_lines.append(line)
+
+        normalized = "\n".join(cleaned_lines).strip()
         if not normalized:
             return []
 

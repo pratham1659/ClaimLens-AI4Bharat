@@ -219,14 +219,20 @@ class BedrockClient(BaseLLMClient):
         import boto3
         from botocore.exceptions import ClientError
 
+        bedrock_region = settings.BEDROCK_REGION or settings.AWS_REGION
+
         self.client = boto3.client(
             "bedrock-runtime",
-            region_name=settings.AWS_REGION,
+            region_name=bedrock_region,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
         )
         self.model_id = settings.BEDROCK_MODEL_ID
-        logger.info(f"Initialized BedrockClient with model: {self.model_id}")
+        logger.info(
+            "Initialized BedrockClient with model=%s region=%s",
+            self.model_id,
+            bedrock_region,
+        )
 
     async def invoke(
         self,

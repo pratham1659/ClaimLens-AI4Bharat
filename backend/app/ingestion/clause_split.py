@@ -41,6 +41,17 @@ class ClauseSplitter:
         r"^(?:Clause|Coverage|Exclusion|Limitation)\s+(\d+(?:\.\d+)*)[:\.\s]*(.*)$",
     ]
 
+    NOISE_LINE_PATTERNS = [
+        r"^\[\s*page\s*\d+\s*\]$",
+        r"^page\s*\d+$",
+        r"^uin\s*:",
+        r"^policy\s+version\s+year\s*:",
+        r"^insurer\s*:",
+        r"^policy\s+wording(?:\s*\(.*\))?$",
+        r"^customer\s+support\s+department$",
+        r"^email\s*:\s*[^\s@]+@[^\s@]+\.[^\s@]+$",
+    ]
+
     def __init__(
         self,
         chunk_size: int = 1000,
@@ -66,6 +77,10 @@ class ClauseSplitter:
         Returns:
             List of policy clause chunks
         """
+        text = self._clean_document_text(text)
+        if not text:
+            return []
+
         # First, identify sections
         sections = self._identify_sections(text)
 
@@ -111,7 +126,7 @@ class ClauseSplitter:
         lines = text.split("\n")
 
         for line in lines:
-            line = line.strip()
+            line = self._clean_line(line)
             if not line:
                 continue
 
@@ -145,8 +160,11 @@ class ClauseSplitter:
 
     def _chunk_section(self, section: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Chunk a section into smaller pieces."""
-        content = section["content"]
+        content = self._clean_document_text(section["content"])
         chunks = []
+
+        if not content:
+            return chunks
 
         # If content is small enough, return as single chunk
         if len(content) <= self.chunk_size:
@@ -159,7 +177,7 @@ class ClauseSplitter:
         current_chunk = ""
 
         for para in paragraphs:
-            para = para.strip()
+            para = self._clean_document_text(para)
             if not para:
                 continue
 
@@ -190,6 +208,9 @@ class ClauseSplitter:
     def _split_large_paragraph(self, paragraph: str) -> List[Dict[str, Any]]:
         """Split a large paragraph into smaller chunks."""
         chunks = []
+        paragraph = self._clean_document_text(paragraph)
+        if not paragraph:
+            return chunks
         sentences = re.split(r'(?<=[.!?])\s+', paragraph)
         current_chunk = ""
 
@@ -229,6 +250,29 @@ class ClauseSplitter:
             overlapped_chunks.append({"content": content})
 
         return overlapped_chunks
+
+    def _clean_line(self, line: str) -> str:
+        cleaned = (line or "").replace("\u200b", " ").replace("\ufeff", " ").strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        if not cleaned:
+            return ""
+
+        for pattern in self.NOISE_LINE_PATTERNS:
+            if re.match(pattern, cleaned, re.IGNORECASE):
+                return ""
+        return cleaned
+
+    def _clean_document_text(self, text: str) -> str:
+        if not text:
+            return ""
+
+        cleaned_lines = []
+        for raw_line in text.splitlines():
+            line = self._clean_line(raw_line)
+            if line:
+                cleaned_lines.append(line)
+
+        return "\n".join(cleaned_lines).strip()
 
     def _is_exclusion(self, text: str) -> bool:
         """Check if chunk contains exclusion language."""
