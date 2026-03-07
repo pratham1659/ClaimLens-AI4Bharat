@@ -216,6 +216,40 @@ def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]
         return []
 
 
+def _deduplicate_retrieval_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Remove repeated chunks while preserving original ranking order."""
+    deduped: List[Dict[str, Any]] = []
+    seen_chunk_keys = set()
+    seen_content_signatures = set()
+
+    for result in results:
+        doc_id = str(result.get("document_id") or "").strip()
+        chunk_index = result.get("chunk_index")
+
+        chunk_key = None
+        if doc_id and chunk_index is not None:
+            chunk_key = (doc_id, int(chunk_index))
+
+        content = str(result.get("content") or "")
+        normalized_content = " ".join(content.split()).lower()
+        content_signature = normalized_content[:700]
+
+        if chunk_key and chunk_key in seen_chunk_keys:
+            continue
+
+        if content_signature and content_signature in seen_content_signatures:
+            continue
+
+        if chunk_key:
+            seen_chunk_keys.add(chunk_key)
+        if content_signature:
+            seen_content_signatures.add(content_signature)
+
+        deduped.append(result)
+
+    return deduped
+
+
 async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
     embedding_count_result = await db.execute(select(func.count(Embedding.id)))
     embedding_count = int(embedding_count_result.scalar() or 0)
@@ -378,6 +412,9 @@ async def search_policies(
         top_k=limit,
         use_hybrid=True
     )
+
+    results = _deduplicate_retrieval_results(results)
+    results = results[:limit]
 
     if results:
         return {
