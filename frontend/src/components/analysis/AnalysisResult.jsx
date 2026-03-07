@@ -162,7 +162,7 @@ export function AnalysisResult({ analysis }) {
               <div key={index} className="p-4 bg-gray-50 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-500">
-                    {clause.source_document}
+                    {formatClauseSourceLabel(clause.source_document)}
                   </span>
                   <span className="text-xs text-gray-400">
                     Relevance: {Math.round(clause.relevance_score * 100)}%
@@ -232,6 +232,16 @@ function getScoreColor(score) {
   if (score >= 75) return "#22c55e";
   if (score >= 50) return "#f59e0b";
   return "#ef4444";
+}
+
+function formatClauseSourceLabel(source) {
+  const normalized = String(source || "").trim().toLowerCase();
+
+  if (!normalized) return "Policy Clause";
+  if (normalized === "embedding_fallback") return "Policy Clause Match";
+  if (normalized === "policy_document") return "Policy Document";
+
+  return String(source);
 }
 
 function getSeverityStyles(severity) {
