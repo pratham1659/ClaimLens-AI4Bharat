@@ -741,11 +741,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- [AI4Bharat](https://ai4bharat.org/) for supporting the development
+- [AI4Bharat](https://vision.hack2skill.com/event/ai-for-bharat) for supporting the development
 - [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
 - [LangChain](https://langchain.com/) for the LLM orchestration tools
-- [HuggingFace](https://huggingface.co/) for open-source models
-- [Ollama](https://ollama.ai/) for local LLM inference
 
 ---
 
