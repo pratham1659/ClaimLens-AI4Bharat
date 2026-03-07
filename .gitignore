@@ -223,3 +223,4 @@ terraform.tfvars
 
 storage/documents/*
 storage/policies/*
+backend/rag_core_snapshot
