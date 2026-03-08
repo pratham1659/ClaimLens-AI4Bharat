@@ -11,8 +11,10 @@ from vectorstore.faiss_store import FaissStore
 class Retriever:
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
-        self.index_path = root_dir / "indexes" / "faiss.index"
-        self.metadata_path = root_dir / "indexes" / "metadata.parquet"
+        rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+        rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else (root_dir / "indexes")
+        self.index_path = rag_index_dir / "faiss.index"
+        self.metadata_path = rag_index_dir / "metadata.parquet"
 
         aws_region = os.getenv("AWS_REGION", "ap-south-1")
         bedrock_region = os.getenv("BEDROCK_REGION") or aws_region
