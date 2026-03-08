@@ -312,7 +312,7 @@ export function LoginPage() {
                   onClick={() => setShowForgotModal(true)}
                   className="text-xs text-primary-600 hover:text-primary-700 font-medium touch-manipulation"
                 >
-                  Forgot password?
+                  Reset password?
                 </button>
               </div>
             </div>
