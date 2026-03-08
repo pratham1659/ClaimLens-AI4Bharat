@@ -220,3 +220,5 @@ terraform.tfvars
 *.pid.lock
 .grunt
 .lock-wscript
+
+backend/rag_core_snapshot
