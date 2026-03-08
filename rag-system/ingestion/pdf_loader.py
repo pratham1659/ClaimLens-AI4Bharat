@@ -92,8 +92,10 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
-    index_path = root_dir / "indexes" / "faiss.index"
-    metadata_path = root_dir / "indexes" / "metadata.parquet"
+    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else (root_dir / "indexes")
+    index_path = rag_index_dir / "faiss.index"
+    metadata_path = rag_index_dir / "metadata.parquet"
     aws_region = os.getenv("AWS_REGION", "us-east-1")
     bedrock_region = os.getenv("BEDROCK_REGION") or aws_region
     bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
