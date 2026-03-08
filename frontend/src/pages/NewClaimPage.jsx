@@ -1,6 +1,5 @@
 // frontend/src/pages/NewClaimPage.jsx
 
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
@@ -25,7 +24,6 @@ export function NewClaimPage() {
   const [uploadedDocs, setUploadedDocs] = useState({
     discharge_summary: null,
     insurance_policy: null,
-    billing_data: null,
   });
 
   const navigate = useNavigate();
@@ -46,14 +44,70 @@ export function NewClaimPage() {
     if (!createdClaim) return;
 
     try {
-      await uploadDocument(createdClaim.id, file, documentType);
+      const documentId = await uploadDocument(createdClaim.id, file, documentType);
+      // Store document with initial status (uploading, then processing, then processed)
       setUploadedDocs((prev) => ({
         ...prev,
-        [documentType]: { filename: file.name },
+        [documentType]: { 
+          filename: file.name,
+          status: "uploaded", // Initial status while processing
+          documentId,
+        },
       }));
+      // Start polling for processing completion
+      pollDocumentStatus(documentType, documentId);
     } catch (error) {
       // Error handled in hook
     }
+  };
+
+  const pollDocumentStatus = (documentType, documentId) => {
+    if (!documentId) return;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        const token = localStorage.getItem('access_token');
+        const response = await fetch(
+          `${process.env.REACT_APP_API_URL || '/api/v1'}/documents/${documentId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const docs = await response.json();
+          const newStatus = docs.data?.status || docs.status;
+          
+          setUploadedDocs((prev) => ({
+            ...prev,
+            [documentType]: { 
+              ...prev[documentType],
+              status: newStatus,
+            },
+          }));
+          
+          // Stop polling when processed
+          if (newStatus === "processed") {
+            clearInterval(pollInterval);
+          }
+        }
+      } catch (error) {
+        console.error("Error polling document status:", error);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    // Stop polling after 5 minutes
+    setTimeout(() => clearInterval(pollInterval), 300000);
+  };
+
+  const handleDeleteDocument = (documentType) => {
+    setUploadedDocs((prev) => ({
+      ...prev,
+      [documentType]: null,
+    }));
+    toast.success("Document removed");
   };
 
   const handleSubmit = () => {
@@ -208,6 +262,7 @@ export function NewClaimPage() {
                 uploadProgress={uploadProgress["discharge_summary"]}
                 uploadedFile={uploadedDocs.discharge_summary}
                 disabled={uploading}
+                onDelete={() => handleDeleteDocument("discharge_summary")}
               />
               <DocumentUploader
                 documentType="insurance_policy"
@@ -215,19 +270,7 @@ export function NewClaimPage() {
                 uploadProgress={uploadProgress["insurance_policy"]}
                 uploadedFile={uploadedDocs.insurance_policy}
                 disabled={uploading}
-              />
-            </div>
-
-            <div>
-              <p className="text-xs sm:text-sm text-gray-500 mb-2">
-                Optional: Billing Data
-              </p>
-              <DocumentUploader
-                documentType="billing_data"
-                onUpload={handleUpload}
-                uploadProgress={uploadProgress["billing_data"]}
-                uploadedFile={uploadedDocs.billing_data}
-                disabled={uploading}
+                onDelete={() => handleDeleteDocument("insurance_policy")}
               />
             </div>
 

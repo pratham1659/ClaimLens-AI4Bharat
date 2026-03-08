@@ -1,6 +1,5 @@
 // frontend/src/pages/DashboardPage.jsx
 
-
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -14,7 +13,6 @@ import {
 } from "lucide-react";
 import { useClaims } from "../hooks/useClaims";
 import { ClaimCard } from "../components/claims/ClaimCard";
-import { LoadingSpinner } from "../components/common/LoadingSpinner";
 import { CardSkeleton } from "../components/common/Skeleton";
 
 export function DashboardPage() {
@@ -128,28 +126,28 @@ export function DashboardPage() {
             <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="p-4 sm:p-6">
+        <div className="p-3 sm:p-4">
           {loading ? (
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-2 sm:space-y-3">
               <CardSkeleton />
               <CardSkeleton />
               <CardSkeleton />
             </div>
           ) : claims.length === 0 ? (
-            <div className="text-center py-8 sm:py-12">
+            <div className="text-center py-6 sm:py-10">
               <FileText className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mx-auto" />
-              <p className="mt-3 sm:mt-4 text-sm sm:text-base text-gray-600">
+              <p className="mt-2 sm:mt-3 text-sm sm:text-base text-gray-600">
                 No claims yet
               </p>
               <Link
                 to="/claims/new"
-                className="btn-primary mt-3 sm:mt-4 inline-flex touch-manipulation"
+                className="btn-primary mt-2 sm:mt-3 inline-flex touch-manipulation"
               >
                 Create your first claim
               </Link>
             </div>
           ) : (
-            <div className="space-y-3 sm:space-y-4">
+            <div className="space-y-2 sm:space-y-3">
               {claims.map((claim) => (
                 <ClaimCard
                   key={claim.id}

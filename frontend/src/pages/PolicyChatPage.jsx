@@ -40,6 +40,11 @@ export function PolicyChatPage() {
   // Mobile panel state
   const [showMobilePanel, setShowMobilePanel] = useState(false);
 
+  // Upload progress modal state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState("");
+
   const fileInputRef = useRef(null);
   const chatEndRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -101,6 +106,17 @@ export function PolicyChatPage() {
 
     setUploading(true);
     setError(null);
+    setShowUploadModal(true);
+    setUploadProgress(0);
+    setUploadStage("Uploading document...");
+
+    // Simulate initial progress
+    const progressInterval = setInterval(() => {
+      setUploadProgress((prev) => {
+        if (prev >= 30) return prev;
+        return prev + Math.random() * 5;
+      });
+    }, 200);
 
     try {
       const formData = new FormData();
@@ -121,13 +137,34 @@ export function PolicyChatPage() {
       setDocumentId(docId);
       setUploading(false);
       setProcessing(true);
+      setUploadProgress(40);
+      setUploadStage("Processing document...");
+
+      // Simulate processing progress
+      clearInterval(progressInterval);
+      const processingInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          if (prev >= 85) return prev;
+          return prev + Math.random() * 8;
+        });
+      }, 300);
 
       // Process document with RAG
+      setUploadStage("Extracting text and creating embeddings...");
       const processResponse = await api.post(`/policies/process/${docId}`);
+
+      clearInterval(processingInterval);
+      setUploadProgress(100);
+      setUploadStage("Complete!");
 
       setPolicyChunks(processResponse.data.data?.chunks || []);
       setProcessing(false);
-      setShowMobilePanel(false); // Close panel on mobile after upload
+
+      // Close modal after short delay
+      setTimeout(() => {
+        setShowUploadModal(false);
+        setShowMobilePanel(false); // Close panel on mobile after upload
+      }, 500);
 
       // Add welcome message
       setMessages([
@@ -139,6 +176,9 @@ export function PolicyChatPage() {
       ]);
     } catch (err) {
       console.error("Upload error:", err);
+      clearInterval(progressInterval);
+      setShowUploadModal(false);
+
       const backendMessage = getErrorMessage(
         err,
         "Failed to upload and process document",
@@ -661,6 +701,73 @@ export function PolicyChatPage() {
           </div>
         </div>
       </div>
+
+      {/* Upload Progress Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                {uploadProgress < 100 ? (
+                  <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                )}
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                {uploadProgress < 100 ? "Processing Document" : "Complete!"}
+              </h3>
+              <p className="text-sm text-gray-600 mb-6">{uploadStage}</p>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                <div
+                  className="bg-primary-600 h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.min(uploadProgress, 100)}%` }}
+                />
+              </div>
+              <p className="text-sm font-medium text-primary-600">
+                {Math.round(uploadProgress)}% complete
+              </p>
+
+              {/* Stage indicators */}
+              <div className="mt-4 flex justify-center gap-2 text-xs text-gray-500">
+                <span
+                  className={
+                    uploadProgress >= 0 ? "text-primary-600 font-medium" : ""
+                  }
+                >
+                  Upload
+                </span>
+                <span>→</span>
+                <span
+                  className={
+                    uploadProgress >= 40 ? "text-primary-600 font-medium" : ""
+                  }
+                >
+                  Process
+                </span>
+                <span>→</span>
+                <span
+                  className={
+                    uploadProgress >= 70 ? "text-primary-600 font-medium" : ""
+                  }
+                >
+                  Embed
+                </span>
+                <span>→</span>
+                <span
+                  className={
+                    uploadProgress >= 100 ? "text-green-600 font-medium" : ""
+                  }
+                >
+                  Done
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

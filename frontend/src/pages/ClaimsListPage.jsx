@@ -1,7 +1,6 @@
 // frontend/src/pages/ClaimsListPage.jsx
 
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -11,17 +10,26 @@ import {
   ChevronRight,
   SlidersHorizontal,
   X,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { useClaims } from "../hooks/useClaims";
 import { ClaimCard } from "../components/claims/ClaimCard";
 import { CardSkeleton } from "../components/common/Skeleton";
 
 const statusOptions = [
-  { value: "", label: "All Status" },
-  { value: "pending", label: "Pending" },
-  { value: "processing", label: "Processing" },
-  { value: "analyzed", label: "Analyzed" },
-  { value: "failed", label: "Failed" },
+  { value: "", label: "All Status", color: "bg-gray-100 text-gray-700" },
+  {
+    value: "pending",
+    label: "Pending",
+    color: "bg-warning-100 text-warning-700",
+  },
+  {
+    value: "analyzed",
+    label: "Analyzed",
+    color: "bg-success-100 text-success-700",
+  },
+  { value: "failed", label: "Failed", color: "bg-danger-100 text-danger-700" },
 ];
 
 export function ClaimsListPage() {
@@ -30,6 +38,22 @@ export function ClaimsListPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowStatusDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectedStatus =
+    statusOptions.find((opt) => opt.value === statusFilter) || statusOptions[0];
 
   useEffect(() => {
     fetchClaims({
@@ -97,23 +121,52 @@ export function ClaimsListPage() {
             />
           </div>
 
-          {/* Status Filter */}
-          <div className="relative w-full md:w-48">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="input pl-10 pr-8 appearance-none cursor-pointer"
+          {/* Custom Status Filter Dropdown */}
+          <div className="relative w-full md:w-48" ref={dropdownRef}>
+            <button
+              onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+              className="input w-full flex items-center justify-between cursor-pointer hover:border-primary-400 transition-colors"
             >
-              {statusOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-gray-400" />
+                <span
+                  className={`text-sm px-2 py-0.5 rounded-full ${selectedStatus.color}`}
+                >
+                  {selectedStatus.label}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-gray-400 transition-transform ${showStatusDropdown ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showStatusDropdown && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
+                {statusOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setStatusFilter(option.value);
+                      setCurrentPage(1);
+                      setShowStatusDropdown(false);
+                    }}
+                    className={`w-full px-3 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors ${
+                      statusFilter === option.value ? "bg-primary-50" : ""
+                    }`}
+                  >
+                    <span
+                      className={`text-sm px-2 py-0.5 rounded-full ${option.color}`}
+                    >
+                      {option.label}
+                    </span>
+                    {statusFilter === option.value && (
+                      <Check className="w-4 h-4 text-primary-600" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {hasActiveFilters && (
@@ -152,23 +205,27 @@ export function ClaimsListPage() {
           {showMobileFilters && (
             <div className="p-3 bg-gray-50 rounded-lg space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Status
                 </label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="input w-full"
-                >
+                <div className="flex flex-wrap gap-2">
                   {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <button
+                      key={option.value}
+                      onClick={() => {
+                        setStatusFilter(option.value);
+                        setCurrentPage(1);
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${option.color} ${
+                        statusFilter === option.value
+                          ? "ring-2 ring-primary-500 ring-offset-1"
+                          : "opacity-70 hover:opacity-100"
+                      }`}
+                    >
                       {option.label}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
               </div>
               {hasActiveFilters && (
                 <button

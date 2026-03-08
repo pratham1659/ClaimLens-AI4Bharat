@@ -68,3 +68,10 @@ class TokenResponse(BaseModel):
 class TokenRefresh(BaseModel):
     """Schema for token refresh."""
     refresh_token: str
+
+
+class ResetPasswordRequest(BaseModel):
+    """Schema for password reset with old password verification."""
+    email: EmailStr
+    old_password: str
+    new_password: str = Field(..., min_length=4, max_length=100)

@@ -1,6 +1,5 @@
 // frontend/src/pages/LoginPage.jsx
 
-
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -11,8 +10,10 @@ import {
   EyeOff,
   AlertCircle,
   CheckCircle,
+  X,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { authAPI } from "../services/api";
 
 export function LoginPage() {
   const [email, setEmail] = useState("");
@@ -22,6 +23,16 @@ export function LoginPage() {
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [serverError, setServerError] = useState("");
+
+  // Forgot password state
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [showOldPassword, setShowOldPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState({ type: "", text: "" });
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -114,6 +125,70 @@ export function LoginPage() {
   // Check if form is valid for enabling submit button
   const isFormValid =
     email.trim() && password && !errors.email && !errors.password;
+
+  // Forgot password handler
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    const emailError = validateEmail(forgotEmail);
+    const oldPassError = validatePassword(oldPassword);
+    const newPassError = validatePassword(newPassword);
+
+    if (emailError) {
+      setForgotMessage({ type: "error", text: emailError });
+      return;
+    }
+    if (oldPassError) {
+      setForgotMessage({
+        type: "error",
+        text: "Old password: " + oldPassError,
+      });
+      return;
+    }
+    if (newPassError) {
+      setForgotMessage({
+        type: "error",
+        text: "New password: " + newPassError,
+      });
+      return;
+    }
+    if (oldPassword === newPassword) {
+      setForgotMessage({
+        type: "error",
+        text: "New password must be different from old password",
+      });
+      return;
+    }
+
+    setForgotLoading(true);
+    setForgotMessage({ type: "", text: "" });
+
+    try {
+      await authAPI.resetPassword(forgotEmail, oldPassword, newPassword);
+      setForgotMessage({
+        type: "success",
+        text: "Password reset successfully!",
+      });
+      setTimeout(() => {
+        closeForgotModal();
+      }, 1500);
+    } catch (error) {
+      setForgotMessage({
+        type: "error",
+        text: error.response?.data?.detail || "Invalid email or password",
+      });
+    }
+    setForgotLoading(false);
+  };
+
+  const closeForgotModal = () => {
+    setShowForgotModal(false);
+    setForgotEmail("");
+    setOldPassword("");
+    setNewPassword("");
+    setShowOldPassword(false);
+    setShowNewPassword(false);
+    setForgotMessage({ type: "", text: "" });
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 flex items-center justify-center p-4 sm:p-6 lg:p-8">
@@ -230,9 +305,16 @@ export function LoginPage() {
                   {errors.password}
                 </p>
               )}
-              <p className="mt-1.5 text-xs text-gray-500">
-                Minimum 4 characters
-              </p>
+              <div className="flex justify-between items-center mt-1.5">
+                <p className="text-xs text-gray-500">Minimum 4 characters</p>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(true)}
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium touch-manipulation"
+                >
+                  Forgot password?
+                </button>
+              </div>
             </div>
 
             {/* Submit Button */}
@@ -280,12 +362,148 @@ export function LoginPage() {
             </Link>
           </p>
         </div>
-
-        {/* Footer - Mobile friendly */}
-        <p className="mt-4 sm:mt-6 text-center text-xs text-gray-500">
-          By signing in, you agree to our Terms of Service and Privacy Policy
-        </p>
       </div>
+
+      {/* Reset Password Modal */}
+      {showForgotModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-sm sm:max-w-md p-5 sm:p-6 relative">
+            <button
+              onClick={closeForgotModal}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 touch-manipulation"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Reset Password
+            </h3>
+
+            {forgotMessage.text && (
+              <div
+                className={`mb-4 p-3 rounded-lg flex items-start gap-2 ${
+                  forgotMessage.type === "error"
+                    ? "bg-danger-50 border border-danger-200"
+                    : "bg-green-50 border border-green-200"
+                }`}
+              >
+                {forgotMessage.type === "error" ? (
+                  <AlertCircle className="w-4 h-4 text-danger-500 flex-shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                )}
+                <p
+                  className={`text-sm ${forgotMessage.type === "error" ? "text-danger-700" : "text-green-700"}`}
+                >
+                  {forgotMessage.text}
+                </p>
+              </div>
+            )}
+
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Email Address
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    className="input pl-10 text-base sm:text-sm"
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                    inputMode="email"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  Current Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type={showOldPassword ? "text" : "password"}
+                    value={oldPassword}
+                    onChange={(e) => setOldPassword(e.target.value)}
+                    className="input pl-10 pr-12 text-base sm:text-sm"
+                    placeholder="Enter current password"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOldPassword(!showOldPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 touch-manipulation"
+                    aria-label={
+                      showOldPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showOldPassword ? (
+                      <EyeOff className="w-5 h-5" />
+                    ) : (
+                      <Eye className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  New Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="input pl-10 pr-12 text-base sm:text-sm"
+                    placeholder="Enter new password"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 touch-manipulation"
+                    aria-label={
+                      showNewPassword ? "Hide password" : "Show password"
+                    }
+                  >
+                    {showNewPassword ? (
+                      <EyeOff className="w-5 h-5" />
+                    ) : (
+                      <Eye className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Minimum 4 characters
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={
+                  forgotLoading ||
+                  !forgotEmail.trim() ||
+                  !oldPassword ||
+                  !newPassword
+                }
+                className="btn-primary w-full py-2.5 text-sm font-medium touch-manipulation disabled:opacity-60"
+              >
+                {forgotLoading ? "Resetting..." : "Reset Password"}
+              </button>
+            </form>
+
+            <button
+              onClick={closeForgotModal}
+              className="mt-4 w-full text-center text-sm text-gray-500 hover:text-gray-700 touch-manipulation"
+            >
+              Back to login
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

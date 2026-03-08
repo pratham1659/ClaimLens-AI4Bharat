@@ -40,6 +40,10 @@ export function useDocuments() {
         toast.error(
           "Direct upload endpoint not found. Restart backend with latest code and try again.",
         );
+      } else if (error?.code === "ECONNABORTED") {
+        toast.error(
+          "Upload processing timed out. The file is being processed in the background. Please refresh to check status.",
+        );
       } else {
         toast.error(message);
       }

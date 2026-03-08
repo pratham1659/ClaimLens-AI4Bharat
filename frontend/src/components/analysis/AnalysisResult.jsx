@@ -74,6 +74,42 @@ export function AnalysisResult({ analysis }) {
         </div>
       </div>
 
+      {/* Debug Info - Right after Approval Assessment */}
+      {analysis.debug_info && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Analysis Debug Info
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500 text-xs">Grounded Analysis</p>
+              <p className="font-medium text-gray-900">
+                {analysis.debug_info.grounded_analysis_used ? "Yes" : "No"}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500 text-xs">Retrieved Clauses</p>
+              <p className="font-medium text-gray-900">
+                {analysis.debug_info.retrieved_clause_count ?? 0}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500 text-xs">Matched Terms</p>
+              <p className="font-medium text-gray-900">
+                {analysis.debug_info.matched_claim_terms ?? 0} /{" "}
+                {analysis.debug_info.total_claim_terms ?? 0}
+              </p>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="text-gray-500 text-xs">Match Ratio</p>
+              <p className="font-medium text-gray-900">
+                {Math.round((analysis.debug_info.match_ratio ?? 0) * 100)}%
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Compliance Risks */}
       {analysis.compliance_risks?.length > 0 && (
         <div className="card p-6">
@@ -151,7 +187,17 @@ export function AnalysisResult({ analysis }) {
         </div>
       )}
 
-      {/* Clause References */}
+      {/* Reasoning */}
+      <div className="card p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Analysis Reasoning
+        </h3>
+        <p className="text-gray-700 whitespace-pre-wrap">
+          {analysis.reasoning}
+        </p>
+      </div>
+
+      {/* Clause References - At the bottom */}
       {analysis.clause_references?.length > 0 && (
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -174,56 +220,6 @@ export function AnalysisResult({ analysis }) {
           </div>
         </div>
       )}
-
-      {/* Reasoning */}
-      <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Analysis Reasoning
-        </h3>
-        <p className="text-gray-700 whitespace-pre-wrap">
-          {analysis.reasoning}
-        </p>
-      </div>
-
-      {/* Debug Info */}
-      {analysis.debug_info && (
-        <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Analysis Debug Info
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-gray-500">Grounded Analysis</p>
-              <p className="font-medium text-gray-900">
-                {analysis.debug_info.grounded_analysis_used ? "Yes" : "No"}
-              </p>
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-gray-500">Retrieved Clauses</p>
-              <p className="font-medium text-gray-900">
-                {analysis.debug_info.retrieved_clause_count ?? 0}
-              </p>
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-gray-500">Matched Claim Terms</p>
-              <p className="font-medium text-gray-900">
-                {(analysis.debug_info.matched_claim_terms ?? 0)} / {analysis.debug_info.total_claim_terms ?? 0}
-              </p>
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-gray-500">Match Ratio</p>
-              <p className="font-medium text-gray-900">
-                {Math.round((analysis.debug_info.match_ratio ?? 0) * 100)}%
-              </p>
-            </div>
-          </div>
-          {analysis.debug_info.model_id && (
-            <p className="mt-3 text-xs text-gray-500 break-all">
-              Model ID: {analysis.debug_info.model_id}
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -235,7 +231,9 @@ function getScoreColor(score) {
 }
 
 function formatClauseSourceLabel(source) {
-  const normalized = String(source || "").trim().toLowerCase();
+  const normalized = String(source || "")
+    .trim()
+    .toLowerCase();
 
   if (!normalized) return "Policy Clause";
   if (normalized === "embedding_fallback") return "Policy Clause Match";

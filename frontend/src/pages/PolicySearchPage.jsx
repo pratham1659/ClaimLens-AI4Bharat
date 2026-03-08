@@ -1,7 +1,14 @@
 // frontend/src/pages/PolicySearchPage.jsx
 
-import { useState, useCallback, useEffect } from "react";
-import { Search, FileText, Loader, BookOpen } from "lucide-react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  Search,
+  FileText,
+  Loader,
+  BookOpen,
+  ChevronDown,
+  Check,
+} from "lucide-react";
 import { policiesAPI } from "../services/api";
 import { debounce } from "../utils/helpers";
 import toast from "react-hot-toast";
@@ -12,22 +19,50 @@ export function PolicySearchPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [readiness, setReadiness] = useState(null);
+  const [documents, setDocuments] = useState([]);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [showDocDropdown, setShowDocDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDocDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   useEffect(() => {
-    const loadReadiness = async () => {
+    const loadInitialData = async () => {
       try {
-        const response = await policiesAPI.readiness();
-        setReadiness(response.data || null);
+        // Load readiness and documents in parallel
+        const [readinessRes, docsRes] = await Promise.all([
+          policiesAPI.readiness(),
+          policiesAPI.list(),
+        ]);
+        setReadiness(readinessRes.data || null);
+        // Deduplicate documents by filename - keep only unique filenames
+        const allDocs = docsRes.data || [];
+        const uniqueDocs = allDocs.reduce((acc, doc) => {
+          if (!acc.find((d) => d.filename === doc.filename)) {
+            acc.push(doc);
+          }
+          return acc;
+        }, []);
+        setDocuments(uniqueDocs);
       } catch {
         setReadiness(null);
       }
     };
 
-    loadReadiness();
+    loadInitialData();
   }, []);
 
   const performSearch = useCallback(
-    debounce(async (searchQuery) => {
+    debounce(async (searchQuery, documentId) => {
       if (!searchQuery.trim()) {
         setResults([]);
         setSearched(false);
@@ -36,9 +71,13 @@ export function PolicySearchPage() {
 
       setLoading(true);
       try {
-        const response = await policiesAPI.search(searchQuery, null, 20);
+        // Pass document_ids as array if selected, null for all
+        const docIds = documentId ? [documentId] : null;
+        const response = await policiesAPI.search(searchQuery, docIds, 20);
         setResults(response.data.results);
-        setReadiness(response.data.readiness || response.data.diagnostics || readiness);
+        setReadiness(
+          response.data.readiness || response.data.diagnostics || readiness,
+        );
         setSearched(true);
       } catch (error) {
         const detailPayload = error?.response?.data?.detail;
@@ -68,12 +107,21 @@ export function PolicySearchPage() {
   const handleQueryChange = (e) => {
     const value = e.target.value;
     setQuery(value);
-    performSearch(value);
+    performSearch(value, selectedDocument?.id);
   };
 
   const handleSuggestionClick = (suggestion) => {
     setQuery(suggestion);
-    performSearch(suggestion);
+    performSearch(suggestion, selectedDocument?.id);
+  };
+
+  const handleDocumentSelect = (doc) => {
+    setSelectedDocument(doc);
+    setShowDocDropdown(false);
+    // Re-search with new document filter if there's a query
+    if (query.trim()) {
+      performSearch(query, doc?.id);
+    }
   };
 
   return (
@@ -90,6 +138,76 @@ export function PolicySearchPage() {
 
       {/* Search Box - Responsive */}
       <div className="card p-4 sm:p-6">
+        {/* Document Filter Dropdown */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter by Document
+          </label>
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setShowDocDropdown(!showDocDropdown)}
+              className="w-full sm:w-64 flex items-center justify-between px-4 py-2.5 bg-white border border-gray-300 rounded-lg hover:border-primary-400 transition-colors text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                <span className="text-sm truncate">
+                  {selectedDocument
+                    ? selectedDocument.filename
+                    : "All Documents"}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 text-gray-400 flex-shrink-0 transition-transform ${showDocDropdown ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showDocDropdown && (
+              <div className="absolute top-full left-0 right-0 sm:right-auto sm:w-64 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-60 overflow-y-auto">
+                {/* All Documents Option */}
+                <button
+                  onClick={() => handleDocumentSelect(null)}
+                  className={`w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors text-left ${
+                    !selectedDocument ? "bg-primary-50" : ""
+                  }`}
+                >
+                  <span className="text-sm font-medium text-gray-700">
+                    All Documents
+                  </span>
+                  {!selectedDocument && (
+                    <Check className="w-4 h-4 text-primary-600" />
+                  )}
+                </button>
+
+                {/* Document Options */}
+                {documents.length > 0 ? (
+                  documents.map((doc) => (
+                    <button
+                      key={doc.id}
+                      onClick={() => handleDocumentSelect(doc)}
+                      className={`w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors text-left ${
+                        selectedDocument?.id === doc.id ? "bg-primary-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText className="w-4 h-4 text-primary-500 flex-shrink-0" />
+                        <span className="text-sm truncate">{doc.filename}</span>
+                      </div>
+                      {selectedDocument?.id === doc.id && (
+                        <Check className="w-4 h-4 text-primary-600 flex-shrink-0" />
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                    No documents available
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="relative">
           <Search className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
           <input
@@ -99,9 +217,6 @@ export function PolicySearchPage() {
             placeholder="Search for coverage, exclusions, or specific conditions..."
             className="w-full pl-10 sm:pl-12 pr-10 sm:pr-4 py-3 sm:py-4 text-base sm:text-lg border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
-          {loading && (
-            <Loader className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-5 h-5 sm:w-6 sm:h-6 text-primary-600 animate-spin" />
-          )}
         </div>
 
         {/* Suggestions - Responsive scroll on mobile */}
@@ -129,17 +244,37 @@ export function PolicySearchPage() {
 
         {readiness && !readiness.ready_for_policy_search && (
           <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm font-medium text-amber-800">Search readiness issue detected</p>
+            <p className="text-sm font-medium text-amber-800">
+              Search readiness issue detected
+            </p>
             <p className="mt-1 text-xs text-amber-700">
-              mode: {readiness.mode || "unknown"} • db embeddings: {readiness.embedding_rows_in_db ?? 0} •
-              faiss index: {readiness.faiss_index_exists ? "yes" : "no"}
+              mode: {readiness.mode || "unknown"} • db embeddings:{" "}
+              {readiness.embedding_rows_in_db ?? 0} • faiss index:{" "}
+              {readiness.faiss_index_exists ? "yes" : "no"}
             </p>
           </div>
         )}
       </div>
 
+      {/* Loading State - Below Search */}
+      {loading && (
+        <div className="card p-8 sm:p-12">
+          <div className="flex flex-col items-center justify-center">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-primary-100 rounded-full flex items-center justify-center mb-4">
+              <Loader className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600 animate-spin" />
+            </div>
+            <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-1">
+              Searching...
+            </h3>
+            <p className="text-sm text-gray-500">
+              Finding relevant policy clauses
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Results - Responsive */}
-      {searched && (
+      {searched && !loading && (
         <div className="space-y-3 sm:space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base sm:text-lg font-semibold text-gray-900">
