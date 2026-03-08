@@ -5,7 +5,7 @@
 
 import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, CheckCircle, X } from "lucide-react";
+import { Upload, CheckCircle, X, AlertTriangle } from "lucide-react";
 import { clsx } from "clsx";
 import { LoadingSpinner } from "../common/LoadingSpinner";
 
@@ -56,7 +56,8 @@ export function DocumentUploader({
   const isUploading = uploadProgress !== undefined && uploadProgress < 100;
   // Only show as complete when uploaded AND processed
   const isComplete = (uploadProgress === 100 || uploadedFile) && uploadedFile?.status === "processed";
-  const isProcessing = uploadedFile && uploadedFile?.status !== "processed";
+  const isFailed = uploadedFile?.status === "failed";
+  const isProcessing = uploadedFile && !isComplete && !isFailed;
 
   return (
     <div
@@ -65,9 +66,11 @@ export function DocumentUploader({
         "relative border-2 border-dashed rounded-xl transition-all cursor-pointer overflow-hidden",
         isDragActive && "border-primary-500 bg-primary-50",
         isComplete && "border-success-500 bg-success-50",
+        isFailed && "border-danger-500 bg-danger-50",
         isProcessing && "border-primary-400 bg-primary-25",
         !isDragActive &&
           !isComplete &&
+          !isFailed &&
           !isProcessing &&
           "border-gray-300 hover:border-primary-400 hover:bg-gray-50",
         isUploading && "border-primary-400 bg-primary-25",
@@ -120,6 +123,29 @@ export function DocumentUploader({
                   ? "Processing upload..."
                   : "Finalizing..."}
             </p>
+          </>
+        ) : isFailed ? (
+          <>
+            <AlertTriangle className="w-12 h-12 sm:w-14 sm:h-14 text-danger-500" />
+            <p className="mt-3 text-base sm:text-lg font-semibold text-danger-700">
+              {uploadedFile?.filename || "Document Processing Failed"}
+            </p>
+            <p className="mt-1 text-xs sm:text-sm text-danger-600">
+              Processing failed. Please retry upload.
+            </p>
+            {onDelete && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="mt-4 btn-danger text-xs inline-flex items-center gap-1"
+                title="Retry upload"
+              >
+                <X className="w-4 h-4" />
+                Retry
+              </button>
+            )}
           </>
         ) : isProcessing ? (
           <>

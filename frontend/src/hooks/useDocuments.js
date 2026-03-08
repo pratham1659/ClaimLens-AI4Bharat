@@ -28,8 +28,10 @@ export function useDocuments() {
       const documentId = directResponse.data.document_id;
       setUploadProgress((prev) => ({ ...prev, [progressKey]: 60 }));
 
-      // Trigger processing
-      await documentsAPI.process(documentId);
+      // Trigger processing in background (do not block UI on OCR/embedding latency)
+      documentsAPI.process(documentId).catch((error) => {
+        console.error("Document processing error:", error);
+      });
       setUploadProgress((prev) => ({ ...prev, [progressKey]: 100 }));
 
       toast.success(`${file.name} uploaded successfully`);
@@ -39,10 +41,6 @@ export function useDocuments() {
       if (error?.response?.status === 404) {
         toast.error(
           "Direct upload endpoint not found. Restart backend with latest code and try again.",
-        );
-      } else if (error?.code === "ECONNABORTED") {
-        toast.error(
-          "Upload processing timed out. The file is being processed in the background. Please refresh to check status.",
         );
       } else {
         toast.error(message);
