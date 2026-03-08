@@ -64,8 +64,9 @@ class Settings(BaseSettings):
     
     # AWS Bedrock - Embedding Model for vector search
     BEDROCK_EMBEDDING_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
-    # Titan Embed Text V2 returns 1536-dimensional vectors
-    BEDROCK_EMBEDDING_DIMENSION: int = 1536
+    # Titan Embed Text V2 default output dimension is 1024
+    # (also supports 512 and 256 via additional configuration)
+    BEDROCK_EMBEDDING_DIMENSION: int = 1024
     BEDROCK_ENABLED: bool = True
 
     # RAG Configuration
