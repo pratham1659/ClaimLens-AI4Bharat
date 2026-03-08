@@ -380,7 +380,7 @@ export function DashboardPage() {
         </Link>
 
         <Link
-          to="/policy-search"
+          to="/policies"
           className="group card p-4 hover:shadow-lg transition-all border-2 border-transparent hover:border-green-200"
         >
           <div className="flex items-center gap-3">

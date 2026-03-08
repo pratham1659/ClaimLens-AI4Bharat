@@ -228,8 +228,6 @@ export function PolicySearchPage() {
             {[
               "pre-existing conditions",
               "emergency coverage",
-              "prescription drugs",
-              "mental health benefits",
             ].map((suggestion) => (
               <button
                 key={suggestion}
