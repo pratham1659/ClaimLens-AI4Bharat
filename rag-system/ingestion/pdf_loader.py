@@ -15,6 +15,48 @@ from vectorstore.faiss_store import FaissStore
 logger = logging.getLogger(__name__)
 
 
+def resolve_policy_pdf_paths(root_dir: Path) -> List[Path]:
+    """Discover local policy PDFs from known directories."""
+    configured_dir = os.getenv("RAG_POLICIES_DIR", "").strip()
+
+    candidate_dirs: List[Path] = []
+    if configured_dir:
+        configured_path = Path(configured_dir)
+        if not configured_path.is_absolute():
+            configured_path = (root_dir / configured_path).resolve()
+        candidate_dirs.append(configured_path)
+
+    candidate_dirs.extend(
+        [
+            root_dir / "documents" / "policies",
+            root_dir / "storage" / "policies",
+            root_dir.parent / "storage" / "policies",
+        ]
+    )
+
+    seen_dirs = set()
+    discovered_pdfs: List[Path] = []
+
+    for directory in candidate_dirs:
+        try:
+            resolved_dir = directory.resolve()
+        except Exception:
+            resolved_dir = directory
+
+        key = str(resolved_dir)
+        if key in seen_dirs:
+            continue
+        seen_dirs.add(key)
+
+        if not resolved_dir.exists() or not resolved_dir.is_dir():
+            continue
+
+        for pdf_path in sorted(resolved_dir.glob("*.pdf")):
+            discovered_pdfs.append(pdf_path)
+
+    return discovered_pdfs
+
+
 def infer_insurer_from_filename(filename: str) -> str:
     lowered = filename.lower()
     if "icici" in lowered:
@@ -50,17 +92,21 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
-    policies_dir = root_dir / "documents" / "policies"
     index_path = root_dir / "indexes" / "faiss.index"
     metadata_path = root_dir / "indexes" / "metadata.parquet"
     aws_region = os.getenv("AWS_REGION", "us-east-1")
     bedrock_region = os.getenv("BEDROCK_REGION") or aws_region
     bucket = os.getenv("S3_BUCKET_NAME", "claimlens-faiss-index-1")
 
-    if not policies_dir.exists():
+    policy_pdf_paths = resolve_policy_pdf_paths(root_dir)
+    if not policy_pdf_paths:
+        logger.warning("No local policy PDFs found for ingestion.")
         return 0
 
-    pages = load_policy_documents(policies_dir)
+    pages: List[Dict] = []
+    for pdf_path in policy_pdf_paths:
+        pages.extend(load_pdf_pages(pdf_path))
+
     clauses: List[Dict] = []
 
     by_pdf: Dict[str, List[Dict]] = {}

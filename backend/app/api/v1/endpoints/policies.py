@@ -830,6 +830,40 @@ async def ingest_preindexed_policies(
         "print(json.dumps({'indexed_clauses': indexed}))\n"
     )
 
+    local_policy_dirs_raw = [
+        os.getenv("RAG_POLICIES_DIR", "").strip(),
+        str(rag_root / "documents" / "policies"),
+        str(rag_root / "storage" / "policies"),
+        "/app/storage/policies",
+    ]
+    local_policy_dirs: List[Path] = []
+    seen_dirs = set()
+    for raw_dir in local_policy_dirs_raw:
+        if not raw_dir:
+            continue
+        path_obj = Path(raw_dir)
+        key = str(path_obj)
+        if key in seen_dirs:
+            continue
+        seen_dirs.add(key)
+        local_policy_dirs.append(path_obj)
+
+    local_policy_diagnostics = []
+    for directory in local_policy_dirs:
+        try:
+            pdf_count = len(list(directory.glob("*.pdf"))) if directory.exists() and directory.is_dir() else 0
+        except Exception:
+            pdf_count = 0
+
+        local_policy_diagnostics.append(
+            {
+                "path": str(directory),
+                "exists": directory.exists(),
+                "is_dir": directory.is_dir() if directory.exists() else False,
+                "pdf_count": pdf_count,
+            }
+        )
+
     def _run_ingest() -> subprocess.CompletedProcess:
         env = os.environ.copy()
         env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
@@ -902,6 +936,7 @@ async def ingest_preindexed_policies(
         "rag_system_root": str(rag_root),
         "indexed_clauses": int(parsed_output.get("indexed_clauses", 0)),
         "use_async": request.use_async,
+        "local_policy_diagnostics": local_policy_diagnostics,
     }
 
 

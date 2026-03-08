@@ -14,9 +14,9 @@ export function useDocuments() {
   const [uploadProgress, setUploadProgress] = useState({});
 
   const uploadDocument = useCallback(async (claimId, file, documentType) => {
-    const fileId = `${Date.now()}-${file.name}`;
+    const progressKey = documentType;
     setUploading(true);
-    setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }));
+    setUploadProgress((prev) => ({ ...prev, [progressKey]: 0 }));
 
     try {
       // Always use backend direct upload to avoid browser-to-S3 CORS/preflight issues
@@ -26,11 +26,11 @@ export function useDocuments() {
         file,
       );
       const documentId = directResponse.data.document_id;
-      setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }));
+      setUploadProgress((prev) => ({ ...prev, [progressKey]: 60 }));
 
       // Trigger processing
       await documentsAPI.process(documentId);
-      setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }));
+      setUploadProgress((prev) => ({ ...prev, [progressKey]: 100 }));
 
       toast.success(`${file.name} uploaded successfully`);
       return documentId;
@@ -49,7 +49,7 @@ export function useDocuments() {
       setTimeout(() => {
         setUploadProgress((prev) => {
           const newProgress = { ...prev };
-          delete newProgress[fileId];
+          delete newProgress[progressKey];
           return newProgress;
         });
       }, 1000);

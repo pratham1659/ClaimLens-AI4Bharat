@@ -139,7 +139,10 @@ export const documentsAPI = {
     });
   },
 
-  process: (documentId) => api.post(`/documents/${documentId}/process`),
+  process: (documentId) =>
+    api.post(`/documents/${documentId}/process`, null, {
+      timeout: 300000,
+    }),
 
   get: (documentId) => api.get(`/documents/${documentId}`),
 

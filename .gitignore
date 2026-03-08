@@ -220,6 +220,3 @@ terraform.tfvars
 *.pid.lock
 .grunt
 .lock-wscript
-
-storage/documents/*
-storage/policies/*
