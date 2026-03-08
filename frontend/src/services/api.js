@@ -151,7 +151,7 @@ export const documentsAPI = {
       timeout: 300000,
     }),
 
-  get: (documentId) => api.get(`/documents/${documentId}`), 
+  get: (documentId) => api.get(`/documents/${documentId}`),
 
   getText: (documentId) => api.get(`/documents/${documentId}/text`),
 
@@ -161,6 +161,17 @@ export const documentsAPI = {
   delete: (documentId) => api.delete(`/documents/${documentId}`),
 
   listByClaimId: (claimId) => api.get(`/documents/claim/${claimId}`),
+
+  // Get all insurance policies uploaded by the user across all claims
+  listUserInsurancePolicies: () =>
+    api.get("/documents/user/insurance-policies"),
+
+  // Copy a processed document to another claim without re-processing
+  copyToClaim: (sourceDocumentId, targetClaimId) =>
+    api.post("/documents/copy-to-claim", {
+      source_document_id: sourceDocumentId,
+      target_claim_id: targetClaimId,
+    }),
 };
 
 // Analysis API

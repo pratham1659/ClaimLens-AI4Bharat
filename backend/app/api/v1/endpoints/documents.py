@@ -49,7 +49,8 @@ def _looks_like_insurance_policy(text: str) -> bool:
     if len(normalized.strip()) < 200:
         return False
 
-    matches = sum(1 for token in INSURANCE_POLICY_KEYWORDS if token in normalized)
+    matches = sum(
+        1 for token in INSURANCE_POLICY_KEYWORDS if token in normalized)
     return matches >= 3
 
 
@@ -170,7 +171,8 @@ async def upload_document_direct(
     except Exception as e:
         logger.error(f"Direct upload failed for document {document.id}: {e}")
         await document_service.db.rollback()
-        raise HTTPException(status_code=500, detail="Direct upload to storage failed")
+        raise HTTPException(
+            status_code=500, detail="Direct upload to storage failed")
 
     return {
         "success": True,
@@ -309,6 +311,161 @@ async def list_claim_documents(
     return [DocumentResponse.model_validate(doc) for doc in documents]
 
 
+@router.get(
+    "/user/insurance-policies",
+    response_model=List[DocumentResponse],
+    summary="List all user's insurance policies"
+)
+async def list_user_insurance_policies(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List all insurance policy documents uploaded by the current user across all their claims.
+    This allows reusing previously uploaded policies in new claims.
+    Returns deduplicated list by filename (keeping the newest version of each file).
+    """
+    # Get all claims for the user
+    claims_result = await db.execute(
+        select(Claim.id).where(Claim.user_id == current_user.id)
+    )
+    claim_ids = [row[0] for row in claims_result.fetchall()]
+
+    if not claim_ids:
+        return []
+
+    # Get all insurance policies from user's claims, ordered by created_at desc
+    docs_result = await db.execute(
+        select(Document).where(
+            Document.claim_id.in_(claim_ids),
+            Document.document_type == DocumentType.INSURANCE_POLICY
+        ).order_by(Document.created_at.desc())
+    )
+    documents = docs_result.scalars().all()
+
+    # Deduplicate by filename (keep the newest version of each file)
+    seen_filenames = set()
+    unique_documents = []
+    for doc in documents:
+        filename_lower = doc.filename.lower()
+        if filename_lower not in seen_filenames:
+            seen_filenames.add(filename_lower)
+            unique_documents.append(doc)
+
+    return [DocumentResponse.model_validate(doc) for doc in unique_documents]
+
+
+class CopyDocumentRequest(BaseModel):
+    """Request body for copying a document to another claim."""
+    source_document_id: UUID
+    target_claim_id: UUID
+
+
+@router.post(
+    "/copy-to-claim",
+    response_model=SingleResponse[DocumentResponse],
+    summary="Copy document to another claim"
+)
+async def copy_document_to_claim(
+    request: CopyDocumentRequest,
+    current_user: User = Depends(get_current_user),
+    document_service: DocumentService = Depends(get_document_service),
+    claim_service: ClaimService = Depends(get_claim_service),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Copy an already-processed document to another claim without re-processing.
+
+    This allows reusing previously uploaded and processed documents (like insurance policies)
+    in new claims without having to upload and process them again.
+    """
+    from app.models.embedding import Embedding
+
+    # Get the source document
+    source_doc = await document_service.get_document(request.source_document_id)
+
+    # Verify the source document belongs to the user (via claim ownership)
+    source_claim_result = await db.execute(
+        select(Claim).where(Claim.id == source_doc.claim_id)
+    )
+    source_claim = source_claim_result.scalar_one_or_none()
+    if not source_claim or str(source_claim.user_id) != str(current_user.id):
+        raise HTTPException(
+            status_code=403, detail="Not authorized to access source document")
+
+    # Verify target claim access
+    await claim_service.get_claim(request.target_claim_id, current_user)
+
+    # Check if document is processed (compare as strings for SQLAlchemy compatibility)
+    doc_status = source_doc.status.value if hasattr(
+        source_doc.status, 'value') else str(source_doc.status)
+    if doc_status != DocumentStatus.PROCESSED.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Can only copy processed documents. Please wait for processing to complete."
+        )
+
+    # Create new document record with copied data
+    new_doc_id = uuid4()
+    source_filename = source_doc.filename if isinstance(
+        source_doc.filename, str) else str(source_doc.filename)
+    source_s3_key = source_doc.s3_key if isinstance(
+        source_doc.s3_key, str) else str(source_doc.s3_key)
+    new_s3_key = f"documents/{request.target_claim_id}/{new_doc_id}/{source_filename}"
+
+    # Copy the S3 file to new location
+    try:
+        document_service.copy_s3_object(source_s3_key, new_s3_key)
+    except Exception as e:
+        logger.error(f"Failed to copy S3 object: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to copy document file")
+
+    # Create new document with the same extracted text and processed status
+    new_document = Document(
+        id=new_doc_id,
+        claim_id=request.target_claim_id,
+        document_type=source_doc.document_type,
+        filename=source_filename,
+        file_size=source_doc.file_size,
+        content_type=source_doc.content_type if isinstance(
+            source_doc.content_type, str) else str(source_doc.content_type),
+        s3_key=new_s3_key,
+        status=DocumentStatus.PROCESSED,  # Already processed!
+        extracted_text=source_doc.extracted_text
+    )
+
+    db.add(new_document)
+
+    # Copy embeddings from source document
+    embeddings_result = await db.execute(
+        select(Embedding).where(Embedding.document_id == source_doc.id)
+    )
+    source_embeddings = embeddings_result.scalars().all()
+
+    for src_emb in source_embeddings:
+        new_embedding = Embedding(
+            id=uuid4(),
+            document_id=new_doc_id,
+            chunk_index=src_emb.chunk_index,
+            chunk_text=src_emb.chunk_text if isinstance(
+                src_emb.chunk_text, str) else str(src_emb.chunk_text),
+            embedding=src_emb.embedding
+        )
+        db.add(new_embedding)
+
+    await db.commit()
+    await db.refresh(new_document)
+
+    logger.info(
+        f"Copied document {source_doc.id} to claim {request.target_claim_id} as {new_doc_id}")
+
+    return SingleResponse(
+        data=DocumentResponse.model_validate(new_document),
+        message="Document copied successfully"
+    )
+
+
 @router.post(
     "/upload-policy",
     response_model=dict,
@@ -327,7 +484,8 @@ async def upload_policy_document(
     """
     # Validate file type
     if not file.filename or not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        raise HTTPException(
+            status_code=400, detail="Only PDF files are supported")
 
     # Read file content
     content = await file.read()
@@ -371,7 +529,8 @@ async def upload_policy_document(
             claim_number=policy_claim_number,
             patient_name="Policy Chat Upload",
             status=ClaimStatus.PENDING,
-            claim_metadata={"system_generated": True, "purpose": "policy_chat_upload"}
+            claim_metadata={"system_generated": True,
+                            "purpose": "policy_chat_upload"}
         )
         db.add(policy_claim)
         await db.flush()
@@ -401,15 +560,18 @@ async def upload_policy_document(
             content_type=document.content_type,
         )
     except DocumentProcessingError as e:
-        logger.error(f"Failed to upload policy file to storage for document {document.id}: {e}")
+        logger.error(
+            f"Failed to upload policy file to storage for document {document.id}: {e}")
         await db.delete(document)
         await db.commit()
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to upload policy file to S3 for document {document.id}: {e}")
+        logger.error(
+            f"Failed to upload policy file to S3 for document {document.id}: {e}")
         await db.delete(document)
         await db.commit()
-        raise HTTPException(status_code=500, detail="Failed to store uploaded document")
+        raise HTTPException(
+            status_code=500, detail="Failed to store uploaded document")
 
     return {
         "success": True,
