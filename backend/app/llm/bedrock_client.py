@@ -1,9 +1,9 @@
-# backend/app/llm/bedrock_client.py
 """
 LLM client supporting both AWS Bedrock (production) and Mock (local development).
 """
 
 import os
+import re
 import logging
 import json
 from typing import Dict, Any, Optional
@@ -331,23 +331,45 @@ class BedrockClient(BaseLLMClient):
 
         content = response["content"]
 
-        # Extract JSON from response
+        # Extract JSON from response and sanitize common LLM formatting issues
         try:
-            # Try to find JSON in the response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
+
+            # Remove markdown code blocks if Claude added them
+            cleaned = re.sub(r"```json", "", content)
+            cleaned = re.sub(r"```", "", cleaned).strip()
+
+            # Extract JSON object boundaries
+            json_start = cleaned.find("{")
+            json_end = cleaned.rfind("}") + 1
 
             if json_start != -1 and json_end > json_start:
-                json_str = content[json_start:json_end]
-                return json.loads(json_str)
+                json_str = cleaned[json_start:json_end]
+            else:
+                json_str = cleaned
 
-            # Try parsing entire content as JSON
-            return json.loads(content)
+            # Remove carriage returns
+            json_str = json_str.replace("\r", " ")
+
+            # Remove illegal control characters
+            json_str = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", " ", json_str)
+
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                logger.warning("Malformed JSON from LLM, attempting secondary cleanup")
+
+                # Second cleanup pass for newlines/tabs sometimes inserted by LLM
+                repaired = json_str.replace("\n", " ").replace("\t", " ")
+
+                return json.loads(repaired)
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {str(e)}")
-            logger.debug(f"Raw response: {content}")
-            raise AIServiceError(f"Invalid JSON response from LLM: {str(e)}")
+            logger.error(f"Raw LLM response:\n{content}")
+
+            raise AIServiceError(
+                f"Invalid JSON response from LLM: {str(e)}"
+            )
 
 
 # Singleton instance

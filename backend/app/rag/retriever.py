@@ -168,8 +168,8 @@ class RAGRetriever:
         retrieval_query = query
         if self.query_builder:
             try:
-                structured_query = self.query_builder.build_query(query)
-                retrieval_query = structured_query["query"]
+                structured_query = await self.query_builder.build_query(query)
+                retrieval_query = structured_query.get("query", query)
                 logger.debug(f"Query transformed: '{query[:100]}...' → '{retrieval_query[:100]}...'")
             except Exception as e:
                 logger.warning(f"Query transformation failed, using original: {e}")

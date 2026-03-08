@@ -89,7 +89,7 @@ class ClaimLensQueryBuilder:
             template=QUERY_BUILDER_PROMPT
         )
 
-    def build_query(self, user_input: str) -> Dict:
+    async def build_query(self, user_input: str) -> Dict:
         """
         Transform medical/claim input into structured retrieval query.
 
@@ -102,9 +102,13 @@ class ClaimLensQueryBuilder:
 
         formatted_prompt = self.prompt.format(user_input=user_input)
 
-        response = self.llm.invoke(formatted_prompt)
+        response = await self.llm.invoke(formatted_prompt)
 
-        output = response.content.strip()
+        # Support both BedrockClient responses (dict) and LangChain message objects
+        if isinstance(response, dict):
+            output = response.get("content", "").strip()
+        else:
+            output = getattr(response, "content", str(response)).strip()
 
         sentence = ""
         keywords: List[str] = []
