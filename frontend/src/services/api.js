@@ -146,9 +146,9 @@ export const documentsAPI = {
     });
   },
 
-  process: (documentId) => 
-    api.post(`/documents/${documentId}/process`, {}, {
-      timeout: 180000, // 3 minutes for document processing (PDF parsing, embedding, etc.)
+  process: (documentId) =>
+    api.post(`/documents/${documentId}/process`, null, {
+      timeout: 300000,
     }),
 
   get: (documentId) => api.get(`/documents/${documentId}`), 

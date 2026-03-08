@@ -20,7 +20,7 @@
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Overview](#-overview)
 - [Features](#-features)
@@ -40,7 +40,7 @@
 
 ---
 
-## 🎯 Overview
+## Overview
 
 **ClaimLens AI** is an intelligent insurance claim analysis platform that leverages Retrieval-Augmented Generation (RAG) and Large Language Models (LLMs) to automate the evaluation of health insurance claims against policy documents. The system extracts relevant policy clauses, analyzes claim compliance, and provides actionable recommendations for claim adjudicators.
 
@@ -54,32 +54,32 @@
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Features
 
 | Feature | Description |
 |---------|-------------|
-| 📄 **Document Ingestion** | Upload and process insurance policy PDFs with automatic text extraction |
-| 🔍 **Semantic Search** | Find relevant policy clauses using advanced embedding models |
-| 🤖 **AI Analysis** | Comprehensive claim analysis using Claude/GPT models |
-| 📊 **Risk Assessment** | Identify compliance risks with severity ratings |
-| 💡 **Recommendations** | Get actionable suggestions for claim processing |
-| 📈 **Analytics Dashboard** | Visual insights into claim patterns and outcomes |
+| **Document Ingestion** | Upload and process insurance policy PDFs with automatic text extraction |
+| **Semantic Search** | Find relevant policy clauses using advanced embedding models |
+| **AI Analysis** | Comprehensive claim analysis using Claude/GPT models |
+| **Risk Assessment** | Identify compliance risks with severity ratings |
+| **Recommendations** | Get actionable suggestions for claim processing |
+| **Analytics Dashboard** | Visual insights into claim patterns and outcomes |
 
 ### AI/ML Features
 
 | Feature | Description |
 |---------|-------------|
-| 🧠 **RAG Pipeline** | Retrieval-Augmented Generation for context-aware responses |
-| 🔤 **Embeddings** | Multiple embedding options (HuggingFace BGE, Amazon Titan) |
-| 📚 **Vector Store** | FAISS (local) and pgvector (production) for similarity search |
-| 🎯 **Reranking** | Cross-encoder reranking for improved retrieval accuracy |
-| ⚡ **Caching** | Redis-based caching for faster repeated queries |
+| **RAG Pipeline** | Retrieval-Augmented Generation for context-aware responses |
+| **Embeddings** | Multiple embedding options (HuggingFace BGE, Amazon Titan) |
+| **Vector Store** | FAISS (local) and pgvector (production) for similarity search |
+| **Reranking** | Cross-encoder reranking for improved retrieval accuracy |
+| **Caching** | Redis-based caching for faster repeated queries |
 
 ---
 
-## 🏗 Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -125,7 +125,7 @@
 
 ---
 
-## 🛠 Technology Stack
+## Technology Stack
 
 ### Backend
 
@@ -210,7 +210,7 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -268,7 +268,7 @@ Password: admin123
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Local Development Setup
 
@@ -312,7 +312,7 @@ docker compose exec backend alembic upgrade head
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -354,7 +354,7 @@ docker compose exec backend alembic upgrade head
 
 ---
 
-## 📡 API Reference
+## API Reference
 
 ### Authentication
 
@@ -437,7 +437,7 @@ Interactive API documentation is available at:
 
 ---
 
-## 🧠 RAG Pipeline
+## RAG Pipeline
 
 ### Overview
 
@@ -489,7 +489,7 @@ SIMILARITY_THRESHOLD = 0.7    # Minimum similarity score
 
 ---
 
-## 🤖 LLM Integration
+## LLM Integration
 
 ### Supported LLM Modes
 
@@ -551,7 +551,7 @@ AWS_SECRET_ACCESS_KEY=your-secret-key
 
 ---
 
-## 🚢 Deployment
+## Deployment
 
 ### Docker Compose Profiles
 
@@ -585,7 +585,7 @@ See [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) for detailed AWS depl
 
 ---
 
-## 💻 Development
+## Development
 
 ### Project Structure
 
@@ -667,7 +667,7 @@ docker compose exec backend mypy app/
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Running Tests
 
@@ -697,7 +697,7 @@ backend/tests/
 
 ---
 
-## 📖 Documentation
+## Documentation
 
 | Document | Description |
 |----------|-------------|
@@ -711,7 +711,7 @@ backend/tests/
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -733,13 +733,13 @@ chore: Maintenance tasks
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [AI4Bharat](https://vision.hack2skill.com/event/ai-for-bharat) for supporting the development
 - [FastAPI](https://fastapi.tiangolo.com/) for the excellent web framework
@@ -749,7 +749,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 <div align="center">
 
-**Built with ❤️ for the Indian Insurance Industry**
+**Built with Passion for the Indian Insurance Industry, let's Make AI accessible for all**
 
 [⬆ Back to Top](#claimlens-ai)
 
