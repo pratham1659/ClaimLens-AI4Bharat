@@ -115,7 +115,7 @@ class ReasoningEngine:
                 "total_claim_terms": 0,
                 "match_ratio": 0.0,
                 "retrieval_fallback_used": retrieval_fallback_used,
-                "model_id": settings.BEDROCK_MODEL_ID,
+                "reasoning_model_id": settings.BEDROCK_REASONING_MODEL_ID,
             }
         else:
             response["debug_info"]["retrieval_fallback_used"] = retrieval_fallback_used
@@ -145,9 +145,14 @@ class ReasoningEngine:
         return result
 
     def _should_use_grounded_analysis(self) -> bool:
+        """
+        Determine if grounded analysis should be used.
+        
+        Only uses grounded analysis if explicitly using mock LLM in dev mode.
+        Production should use Bedrock reasoning models.
+        """
         use_mock_llm = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
-        model_is_embedding_only = settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
-        return use_mock_llm or model_is_embedding_only
+        return use_mock_llm
 
     def _build_grounded_analysis(
         self,
@@ -329,7 +334,7 @@ class ReasoningEngine:
                 "match_ratio": round(match_ratio, 3),
                 "avg_clause_relevance": round(avg_relevance, 3),
                 "retrieval_fallback_used": False,
-                "model_id": settings.BEDROCK_MODEL_ID,
+                "reasoning_model_id": settings.BEDROCK_REASONING_MODEL_ID,
             },
         }
 

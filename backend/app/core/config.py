@@ -56,11 +56,16 @@ class Settings(BaseSettings):
         default="claimlens-faiss-index-1", description="S3 bucket for documents")
     S3_PRESIGNED_URL_EXPIRY: int = 3600
 
-    # AWS Bedrock
+    # AWS Bedrock - Reasoning Model for claim/query analysis
     BEDROCK_REGION: Optional[str] = None
-    BEDROCK_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
+    # Use Claude 3 Haiku for reasoning (claim analysis, query building, etc.)
+    BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307-v1:0"
+    BEDROCK_REASONING_MODEL_ID: str = "anthropic.claude-3-haiku-20240307-v1:0"
+    
+    # AWS Bedrock - Embedding Model for vector search
     BEDROCK_EMBEDDING_MODEL_ID: str = "amazon.titan-embed-text-v2:0"
-    BEDROCK_EMBEDDING_DIMENSION: int = 1024
+    # Titan Embed Text V2 returns 1536-dimensional vectors
+    BEDROCK_EMBEDDING_DIMENSION: int = 1536
     BEDROCK_ENABLED: bool = True
 
     # RAG Configuration

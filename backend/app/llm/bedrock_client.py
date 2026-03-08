@@ -227,10 +227,13 @@ class BedrockClient(BaseLLMClient):
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
             aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
         )
-        self.model_id = settings.BEDROCK_MODEL_ID
+        # Use reasoning model by default; can be overridden per invoke call
+        self.model_id = settings.BEDROCK_REASONING_MODEL_ID
+        self.embedding_model_id = settings.BEDROCK_EMBEDDING_MODEL_ID
         logger.info(
-            "Initialized BedrockClient with model=%s region=%s",
+            "Initialized BedrockClient with reasoning_model=%s embedding_model=%s region=%s",
             self.model_id,
+            self.embedding_model_id,
             bedrock_region,
         )
 
@@ -240,7 +243,8 @@ class BedrockClient(BaseLLMClient):
         system_prompt: Optional[str] = None,
         max_tokens: int = 4096,
         temperature: float = 0.1,
-        top_p: float = 0.9
+        top_p: float = 0.9,
+        model_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Invoke Claude model with a prompt.
@@ -251,11 +255,15 @@ class BedrockClient(BaseLLMClient):
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
             top_p: Top-p sampling parameter
+            model_id: Optional model ID override (defaults to BEDROCK_REASONING_MODEL_ID)
 
         Returns:
             Model response
         """
         from botocore.exceptions import ClientError
+
+        # Use provided model_id or fall back to default reasoning model
+        actual_model_id = model_id or self.model_id
 
         try:
             # Build messages
@@ -276,7 +284,7 @@ class BedrockClient(BaseLLMClient):
                 body["system"] = system_prompt
 
             response = self.client.invoke_model(
-                modelId=self.model_id,
+                modelId=actual_model_id,
                 body=json.dumps(body),
                 contentType="application/json",
                 accept="application/json"
@@ -298,7 +306,8 @@ class BedrockClient(BaseLLMClient):
         self,
         prompt: str,
         system_prompt: Optional[str] = None,
-        max_tokens: int = 4096
+        max_tokens: int = 4096,
+        model_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Invoke model expecting JSON output.
@@ -307,6 +316,7 @@ class BedrockClient(BaseLLMClient):
             prompt: User prompt
             system_prompt: System prompt
             max_tokens: Maximum tokens
+            model_id: Optional model ID override (defaults to BEDROCK_REASONING_MODEL_ID)
 
         Returns:
             Parsed JSON response
@@ -315,7 +325,8 @@ class BedrockClient(BaseLLMClient):
             prompt=prompt,
             system_prompt=system_prompt,
             max_tokens=max_tokens,
-            temperature=0.0  # Lower temperature for structured output
+            temperature=0.0,  # Lower temperature for structured output
+            model_id=model_id
         )
 
         content = response["content"]
