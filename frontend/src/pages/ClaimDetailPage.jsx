@@ -14,8 +14,11 @@ import {
   Upload,
   X,
   AlertTriangle,
+  Clock,
+  Check,
 } from "lucide-react";
 import { format } from "date-fns";
+import toast from "react-hot-toast";
 import { useClaims } from "../hooks/useClaims";
 import { useDocuments } from "../hooks/useDocuments";
 import { useAnalysis } from "../hooks/useAnalysis";
@@ -23,6 +26,10 @@ import { StatusBadge } from "../components/common/Badge";
 import { AnalysisResult } from "../components/analysis/AnalysisResult";
 import { LoadingSpinner } from "../components/common/LoadingSpinner";
 import { CardSkeleton } from "../components/common/Skeleton";
+import { documentsAPI } from "../services/api";
+
+// Maximum file size: 5 MB in bytes
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export function ClaimDetailPage() {
   const { claimId } = useParams();
@@ -47,14 +54,15 @@ export function ClaimDetailPage() {
 
   const [claim, setClaim] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [autoReanalyzing, setAutoReanalyzing] = useState(false);
   const [showAnalysisModal, setShowAnalysisModal] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [missingDocWarning, setMissingDocWarning] = useState(null);
   const fileInputRef = useRef(null);
   const [uploadingType, setUploadingType] = useState(null);
-  const autoAnalyzedClaimsRef = useRef(new Set());
+  const [allUserPolicies, setAllUserPolicies] = useState([]);
+  const [selectingPolicy, setSelectingPolicy] = useState(false);
+  const pollingIntervalRef = useRef(null);
 
   // Get all documents by type (support multiple files of same type)
   const dischargeSummaries = documents.filter(
@@ -71,42 +79,78 @@ export function ClaimDetailPage() {
     loadClaimData();
   }, [claimId]);
 
+  // Poll for document processing status
+  const startDocumentPolling = () => {
+    // Clear any existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const docs = await fetchDocuments(claimId);
+        // Check if all documents are in terminal state (processed or failed)
+        const allDone = docs.every(
+          (doc) => doc.status === "processed" || doc.status === "failed",
+        );
+        if (allDone) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      } catch (error) {
+        console.error("Error polling documents:", error);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    // Stop polling after 5 minutes
+    setTimeout(() => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    }, 300000);
+  };
+
+  // Cleanup polling on unmount
   useEffect(() => {
-    if (!claimId || loading || analysisLoading || analyzing) return;
-    if (autoAnalyzedClaimsRef.current.has(claimId)) return;
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
-    const hasProcessedDischargeSummary = documents.some(
-      (doc) =>
-        doc.document_type === "discharge_summary" && doc.status === "processed",
-    );
-    const hasProcessedInsurancePolicy = documents.some(
-      (doc) =>
-        doc.document_type === "insurance_policy" && doc.status === "processed",
-    );
-
-    if (!hasProcessedDischargeSummary || !hasProcessedInsurancePolicy) return;
-
-    autoAnalyzedClaimsRef.current.add(claimId);
-    setAutoReanalyzing(true);
-
-    analyzeClaim(claimId, { silent: true })
-      .catch(() => {
-        autoAnalyzedClaimsRef.current.delete(claimId);
-      })
-      .finally(() => {
-        setAutoReanalyzing(false);
-      });
-  }, [claimId, loading, analysisLoading, analyzing, documents, analyzeClaim]);
+  // Fetch all user's insurance policies for selection
+  useEffect(() => {
+    const fetchAllPolicies = async () => {
+      try {
+        const response = await documentsAPI.listUserInsurancePolicies();
+        // Show all policies (don't filter out current claim)
+        setAllUserPolicies(response.data || []);
+      } catch (error) {
+        console.error("Error fetching user policies:", error);
+      }
+    };
+    fetchAllPolicies();
+  }, [claimId, documents]);
 
   const loadClaimData = async () => {
     setLoading(true);
     try {
-      const [claimData] = await Promise.all([
+      const [claimData, docs] = await Promise.all([
         getClaim(claimId),
         fetchDocuments(claimId),
         fetchAnalysis(claimId),
       ]);
       setClaim(claimData);
+
+      // If there are any documents still processing, start polling
+      const hasProcessingDocs = docs?.some(
+        (doc) => doc.status !== "processed" && doc.status !== "failed",
+      );
+      if (hasProcessingDocs) {
+        startDocumentPolling();
+      }
     } catch (error) {
       navigate("/claims");
     } finally {
@@ -144,12 +188,22 @@ export function ClaimDetailPage() {
     try {
       await analyzeClaim(claimId);
       setAnalysisProgress(100);
+
+      // Refresh claim data to get updated status
+      const updatedClaim = await getClaim(claimId);
+      setClaim(updatedClaim);
+
       setTimeout(() => {
         setShowAnalysisModal(false);
         setAnalysisProgress(0);
       }, 500);
     } catch {
       // Error toast is handled in the hook
+      // Also refresh claim to get failed status
+      try {
+        const updatedClaim = await getClaim(claimId);
+        setClaim(updatedClaim);
+      } catch {}
       setShowAnalysisModal(false);
     } finally {
       clearInterval(progressInterval);
@@ -172,13 +226,132 @@ export function ClaimDetailPage() {
     fileInputRef.current?.click();
   };
 
+  const handleSelectPolicy = async (policy) => {
+    setSelectingPolicy(true);
+    try {
+      toast.loading("Replacing existing policy...", { id: "replace-policy" });
+
+      // Fetch fresh documents list to ensure we have current state
+      const currentDocs = await fetchDocuments(claimId);
+      const currentPolicies = currentDocs.filter(
+        (doc) => doc.document_type === "insurance_policy",
+      );
+
+      // Check for duplicate - if file with same name already exists in this claim
+      const existingPolicyWithSameName = currentPolicies.find(
+        (doc) => doc.filename.toLowerCase() === policy.filename.toLowerCase(),
+      );
+      if (existingPolicyWithSameName) {
+        toast.error(`"${policy.filename}" already exists in this claim.`, {
+          id: "replace-policy",
+        });
+        setSelectingPolicy(false);
+        return;
+      }
+
+      // Delete ALL existing insurance policies first (only one allowed per claim)
+      for (const existingPolicy of currentPolicies) {
+        console.log(
+          "Deleting existing policy:",
+          existingPolicy.id,
+          existingPolicy.filename,
+        );
+        await deleteDocument(existingPolicy.id);
+      }
+
+      // Use copy API to copy the already-processed document without re-processing
+      // This preserves the processed status and embeddings
+      console.log("Copying policy:", policy.id, "to claim:", claimId);
+      await documentsAPI.copyToClaim(policy.id, claimId);
+
+      // Fetch documents again to update the UI
+      await fetchDocuments(claimId);
+
+      // Refresh user policies list
+      try {
+        const response = await documentsAPI.listUserInsurancePolicies();
+        setAllUserPolicies(response.data || []);
+      } catch {}
+
+      // No need to poll - document is already processed
+      toast.success(`Selected: ${policy.filename}`, { id: "replace-policy" });
+    } catch (error) {
+      console.error("Error selecting policy:", error);
+      toast.error("Failed to select policy. Please try again.", {
+        id: "replace-policy",
+      });
+    } finally {
+      setSelectingPolicy(false);
+    }
+  };
+
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !uploadingType) return;
 
+    // Check file size limit (5 MB)
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error("File is too large. Maximum size is 5 MB.");
+      setUploadingType(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
     try {
+      // For insurance_policy uploads, we need special handling
+      if (uploadingType === "insurance_policy") {
+        toast.loading("Processing insurance policy...", {
+          id: "upload-replace",
+        });
+
+        // Fetch fresh documents list to ensure we have current state
+        const currentDocs = await fetchDocuments(claimId);
+        const currentPolicies = currentDocs.filter(
+          (doc) => doc.document_type === "insurance_policy",
+        );
+
+        // Check for duplicate filename
+        const existingPolicy = currentPolicies.find(
+          (doc) => doc.filename.toLowerCase() === file.name.toLowerCase(),
+        );
+        if (existingPolicy) {
+          toast.error(`"${file.name}" already exists in this claim.`, {
+            id: "upload-replace",
+          });
+          setUploadingType(null);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+          return;
+        }
+
+        // Delete ALL existing insurance policies (only one allowed per claim)
+        for (const policy of currentPolicies) {
+          console.log(
+            "Deleting existing policy before upload:",
+            policy.id,
+            policy.filename,
+          );
+          await deleteDocument(policy.id);
+        }
+        toast.dismiss("upload-replace");
+      }
+
       await uploadDocument(claimId, file, uploadingType);
       await fetchDocuments(claimId);
+
+      // Refresh user policies list if we uploaded an insurance policy
+      if (uploadingType === "insurance_policy") {
+        try {
+          const response = await documentsAPI.listUserInsurancePolicies();
+          setAllUserPolicies(response.data || []);
+        } catch {}
+      }
+
+      // Start polling to detect when document processing completes
+      startDocumentPolling();
     } catch {
       // Error handled in hook
     } finally {
@@ -229,21 +402,17 @@ export function ClaimDetailPage() {
 
           <button
             onClick={handleAnalyze}
-            disabled={
-              analyzing || autoReanalyzing || claim.status === "processing"
-            }
+            disabled={analyzing || claim.status === "processing"}
             className={`inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all touch-manipulation ${
-              analyzing || autoReanalyzing
+              analyzing
                 ? "bg-primary-100 text-primary-700 cursor-wait"
                 : "bg-primary-600 text-white hover:bg-primary-700 shadow-sm hover:shadow"
             } disabled:opacity-60 disabled:cursor-not-allowed`}
           >
-            {analyzing || autoReanalyzing ? (
+            {analyzing ? (
               <>
                 <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                <span className="hidden sm:inline">
-                  {autoReanalyzing ? "Refreshing..." : "Analyzing..."}
-                </span>
+                <span className="hidden sm:inline">Analyzing...</span>
                 <span className="sm:hidden">...</span>
               </>
             ) : (
@@ -338,7 +507,10 @@ export function ClaimDetailPage() {
             {dischargeSummaries.length > 0 ? (
               <div className="space-y-2">
                 {dischargeSummaries.map((doc) => (
-                  <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gray-50 rounded-lg">
+                  <div
+                    key={doc.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gray-50 rounded-lg"
+                  >
                     <div className="flex items-center gap-3 min-w-0">
                       <FileText className="w-5 h-5 text-blue-500 flex-shrink-0" />
                       <div className="min-w-0">
@@ -355,7 +527,9 @@ export function ClaimDetailPage() {
                         <>
                           <div className="flex items-center gap-1 text-primary-600">
                             <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-xs font-medium">Processing...</span>
+                            <span className="text-xs font-medium">
+                              Processing...
+                            </span>
                           </div>
                         </>
                       ) : (
@@ -409,7 +583,10 @@ export function ClaimDetailPage() {
             {insurancePolicies.length > 0 ? (
               <div className="space-y-2">
                 {insurancePolicies.map((doc) => (
-                  <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gray-50 rounded-lg">
+                  <div
+                    key={doc.id}
+                    className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gray-50 rounded-lg"
+                  >
                     <div className="flex items-center gap-3 min-w-0">
                       <FileText className="w-5 h-5 text-green-500 flex-shrink-0" />
                       <div className="min-w-0">
@@ -426,7 +603,9 @@ export function ClaimDetailPage() {
                         <>
                           <div className="flex items-center gap-1 text-primary-600">
                             <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-xs font-medium">Processing...</span>
+                            <span className="text-xs font-medium">
+                              Processing...
+                            </span>
                           </div>
                         </>
                       ) : (
@@ -460,6 +639,86 @@ export function ClaimDetailPage() {
                 </p>
               </div>
             )}
+
+            {/* Previously Uploaded Insurance Policies */}
+            {(() => {
+              // Deduplicate policies by filename, prioritizing current claim's documents
+              const uniquePolicies = [];
+              const seenFilenames = new Set();
+              // Sort to put current claim's documents first
+              const sortedPolicies = [...allUserPolicies].sort((a, b) => {
+                if (a.claim_id === claimId && b.claim_id !== claimId) return -1;
+                if (b.claim_id === claimId && a.claim_id !== claimId) return 1;
+                return new Date(b.created_at) - new Date(a.created_at);
+              });
+              for (const policy of sortedPolicies) {
+                const lowerFilename = policy.filename.toLowerCase();
+                if (!seenFilenames.has(lowerFilename)) {
+                  seenFilenames.add(lowerFilename);
+                  uniquePolicies.push(policy);
+                }
+              }
+              return (
+                uniquePolicies.length > 0 && (
+                  <div className="mt-4">
+                    <h4 className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      Select from Previously Uploaded Policies
+                    </h4>
+                    <div className="bg-gray-50 rounded-lg border border-gray-200 divide-y divide-gray-200 max-h-48 overflow-y-auto">
+                      {uniquePolicies.map((policy) => {
+                        const isCurrentlySelected = policy.claim_id === claimId;
+                        return (
+                          <div
+                            key={policy.id}
+                            className={`flex items-center justify-between p-2.5 transition-colors ${
+                              isCurrentlySelected
+                                ? "bg-primary-50 border-l-4 border-l-primary-500"
+                                : "hover:bg-gray-100"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <FileText className="w-4 h-4 text-green-500 flex-shrink-0" />
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-gray-900 text-xs truncate">
+                                  {policy.filename}
+                                  {isCurrentlySelected && (
+                                    <span className="ml-2 text-primary-600 font-semibold">
+                                      (Selected)
+                                    </span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-400 flex items-center gap-1">
+                                  {policy.status === "processed" && (
+                                    <Check className="w-3 h-3 text-success-500" />
+                                  )}
+                                  {format(
+                                    new Date(policy.created_at),
+                                    "MMM d, yyyy",
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            {!isCurrentlySelected && (
+                              <button
+                                onClick={() => handleSelectPolicy(policy)}
+                                disabled={selectingPolicy || uploading}
+                                className="px-2.5 py-1 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors touch-manipulation disabled:opacity-50"
+                              >
+                                {selectingPolicy ? "..." : "Use This"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">
+                      Only one insurance policy can be used per claim
+                    </p>
+                  </div>
+                )
+              );
+            })()}
           </div>
         </div>
       </div>

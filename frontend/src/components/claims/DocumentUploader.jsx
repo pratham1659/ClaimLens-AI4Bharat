@@ -7,7 +7,11 @@ import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Upload, CheckCircle, X, AlertTriangle } from "lucide-react";
 import { clsx } from "clsx";
+import toast from "react-hot-toast";
 import { LoadingSpinner } from "../common/LoadingSpinner";
+
+// Maximum file size: 5 MB in bytes
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 const documentTypes = {
   discharge_summary: {
@@ -46,16 +50,34 @@ export function DocumentUploader({
     [onUpload, documentType],
   );
 
+  const onDropRejected = useCallback((fileRejections) => {
+    fileRejections.forEach((rejection) => {
+      rejection.errors.forEach((error) => {
+        if (error.code === "file-too-large") {
+          toast.error(`File is too large. Maximum size is 5 MB.`);
+        } else if (error.code === "file-invalid-type") {
+          toast.error(`Invalid file type. Please upload a valid file.`);
+        } else {
+          toast.error(error.message);
+        }
+      });
+    });
+  }, []);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    onDropRejected,
     accept: config.accept,
     maxFiles: 1,
+    maxSize: MAX_FILE_SIZE,
     disabled: disabled || uploadProgress !== undefined,
   });
 
   const isUploading = uploadProgress !== undefined && uploadProgress < 100;
   // Only show as complete when uploaded AND processed
-  const isComplete = (uploadProgress === 100 || uploadedFile) && uploadedFile?.status === "processed";
+  const isComplete =
+    (uploadProgress === 100 || uploadedFile) &&
+    uploadedFile?.status === "processed";
   const isFailed = uploadedFile?.status === "failed";
   const isProcessing = uploadedFile && !isComplete && !isFailed;
 
@@ -150,48 +172,50 @@ export function DocumentUploader({
         ) : isProcessing ? (
           <>
             <LoadingSpinner size="lg" />
-            <p className="mt-4 text-base sm:text-lg font-semibold text-gray-900">
-              {uploadedFile?.filename || "Document Uploaded"}
-            </p>
+            <div className="mt-4 flex items-center gap-2">
+              <p className="text-base sm:text-lg font-semibold text-gray-900">
+                {uploadedFile?.filename || "Document Uploaded"}
+              </p>
+              {onDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  className="text-xs text-danger-600 hover:text-danger-700 underline transition-colors font-medium"
+                  title="Remove this document"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
             <p className="mt-1 text-xs sm:text-sm text-primary-600">
               Processing document... This may take a minute
             </p>
-            {onDelete && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="mt-4 btn-danger text-xs inline-flex items-center gap-1"
-                title="Delete this document"
-              >
-                <X className="w-4 h-4" />
-                Cancel
-              </button>
-            )}
           </>
         ) : isComplete ? (
           <>
             <CheckCircle className="w-12 h-12 sm:w-14 sm:h-14 text-success-500" />
-            <p className="mt-3 text-base sm:text-lg font-semibold text-success-700">
-              {uploadedFile?.filename || "Document Uploaded"}
-            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <p className="text-base sm:text-lg font-semibold text-success-700">
+                {uploadedFile?.filename || "Document Uploaded"}
+              </p>
+              {onDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                  className="text-xs text-danger-600 hover:text-danger-700 underline transition-colors font-medium"
+                  title="Remove this document"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
             <p className="mt-1 text-xs sm:text-sm text-success-600">
               Ready for analysis
             </p>
-            {onDelete && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete();
-                }}
-                className="mt-4 btn-danger text-xs inline-flex items-center gap-1"
-                title="Delete this document"
-              >
-                <X className="w-4 h-4" />
-                Delete
-              </button>
-            )}
           </>
         ) : (
           <>
@@ -204,6 +228,9 @@ export function DocumentUploader({
             </p>
             <p className="mt-2 text-xs text-gray-500">
               Drag & drop or click to upload
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Maximum file size: 5 MB
             </p>
           </>
         )}

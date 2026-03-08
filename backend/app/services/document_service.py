@@ -91,7 +91,8 @@ class DocumentService:
                     logger.info("Created localstack S3 bucket '%s'", bucket)
                     return
                 except ClientError as create_error:
-                    create_code, create_message = self._extract_s3_error(create_error)
+                    create_code, create_message = self._extract_s3_error(
+                        create_error)
                     if create_code not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
                         raise DocumentProcessingError(
                             f"Storage bucket initialization failed ({create_code}): {create_message}"
@@ -133,7 +134,8 @@ class DocumentService:
                     "Ensure IAM policy 'ClaimLensS3AccessPolicy' allows "
                     f"s3:PutObject,s3:GetObject,s3:DeleteObject on bucket '{settings.S3_BUCKET_NAME}'"
                 )
-            raise DocumentProcessingError(f"Storage upload failed ({code}): {message}")
+            raise DocumentProcessingError(
+                f"Storage upload failed ({code}): {message}")
 
     def get_storage_diagnostics(self) -> Dict[str, Any]:
         """Run lightweight S3 permission checks for current configuration."""
@@ -150,7 +152,8 @@ class DocumentService:
 
         try:
             self.s3_client.head_bucket(Bucket=bucket)
-            checks["head_bucket"] = {"ok": True, "detail": "Bucket is reachable"}
+            checks["head_bucket"] = {"ok": True,
+                                     "detail": "Bucket is reachable"}
         except ClientError as error:
             code, message = self._extract_s3_error(error)
             checks["head_bucket"] = {
@@ -165,17 +168,21 @@ class DocumentService:
                 Body=payload,
                 ContentType="text/plain",
             )
-            checks["put_object"] = {"ok": True, "detail": f"Uploaded test object: {test_key}"}
+            checks["put_object"] = {
+                "ok": True, "detail": f"Uploaded test object: {test_key}"}
         except ClientError as error:
             code, message = self._extract_s3_error(error)
-            checks["put_object"] = {"ok": False, "detail": f"{code}: {message}"}
+            checks["put_object"] = {"ok": False,
+                                    "detail": f"{code}: {message}"}
 
         if checks["put_object"]["ok"]:
             try:
-                response = self.s3_client.get_object(Bucket=bucket, Key=test_key)
+                response = self.s3_client.get_object(
+                    Bucket=bucket, Key=test_key)
                 body = response["Body"].read()
                 if body == payload:
-                    checks["get_object"] = {"ok": True, "detail": "Downloaded test object successfully"}
+                    checks["get_object"] = {
+                        "ok": True, "detail": "Downloaded test object successfully"}
                 else:
                     checks["get_object"] = {
                         "ok": False,
@@ -183,14 +190,17 @@ class DocumentService:
                     }
             except ClientError as error:
                 code, message = self._extract_s3_error(error)
-                checks["get_object"] = {"ok": False, "detail": f"{code}: {message}"}
+                checks["get_object"] = {"ok": False,
+                                        "detail": f"{code}: {message}"}
 
             try:
                 self.s3_client.delete_object(Bucket=bucket, Key=test_key)
-                checks["delete_object"] = {"ok": True, "detail": "Deleted test object successfully"}
+                checks["delete_object"] = {
+                    "ok": True, "detail": "Deleted test object successfully"}
             except ClientError as error:
                 code, message = self._extract_s3_error(error)
-                checks["delete_object"] = {"ok": False, "detail": f"{code}: {message}"}
+                checks["delete_object"] = {
+                    "ok": False, "detail": f"{code}: {message}"}
 
         object_ops_ok = (
             checks["put_object"]["ok"]
@@ -367,7 +377,8 @@ class DocumentService:
             )
             fallback_chunks = self._fallback_policy_chunks(text)
             if not fallback_chunks:
-                logger.warning(f"No fallback chunks extracted from document {document.id}")
+                logger.warning(
+                    f"No fallback chunks extracted from document {document.id}")
                 return
 
             embeddings = await self._generate_policy_embeddings(
@@ -444,7 +455,8 @@ class DocumentService:
 
         for fallback_mode in ["local", "mock"]:
             try:
-                fallback_service = get_embedding_service(force_mode=fallback_mode)
+                fallback_service = get_embedding_service(
+                    force_mode=fallback_mode)
                 embeddings = await fallback_service.generate_embeddings_batch(
                     texts=texts,
                     batch_size=10,
@@ -485,7 +497,8 @@ class DocumentService:
 
         cleaned_lines = []
         for raw_line in normalized.splitlines():
-            line = re.sub(r"\s+", " ", raw_line.replace("\u200b", " ").replace("\ufeff", " ")).strip()
+            line = re.sub(r"\s+", " ", raw_line.replace("\u200b",
+                          " ").replace("\ufeff", " ")).strip()
             if not line:
                 continue
             if any(re.match(pattern, line, re.IGNORECASE) for pattern in noise_patterns):
@@ -575,6 +588,20 @@ class DocumentService:
         except ClientError as e:
             logger.error(f"S3 download failed: {str(e)}")
             raise DocumentProcessingError(f"Failed to download file: {str(e)}")
+
+    def copy_s3_object(self, source_key: str, dest_key: str) -> None:
+        """Copy an S3 object to a new location within the same bucket."""
+        try:
+            self.s3_client.copy_object(
+                Bucket=settings.S3_BUCKET_NAME,
+                CopySource={'Bucket': settings.S3_BUCKET_NAME,
+                            'Key': source_key},
+                Key=dest_key
+            )
+            logger.info(f"Copied S3 object from {source_key} to {dest_key}")
+        except ClientError as e:
+            logger.error(f"S3 copy failed: {str(e)}")
+            raise DocumentProcessingError(f"Failed to copy file: {str(e)}")
 
     async def delete_document(self, document_id: UUID) -> None:
         """Delete document and its S3 object."""

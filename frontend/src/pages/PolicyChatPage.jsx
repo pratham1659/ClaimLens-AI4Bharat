@@ -21,6 +21,9 @@ import { clsx } from "clsx";
 import api from "../services/api";
 import { getErrorMessage } from "../utils/error";
 
+// Maximum file size: 5 MB in bytes
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
 export function PolicyChatPage() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -77,6 +80,10 @@ export function PolicyChatPage() {
   const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
+      if (file.size > MAX_FILE_SIZE) {
+        setError("File is too large. Maximum size is 5 MB.");
+        return;
+      }
       if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
         setUploadedFile(file);
         setError(null);
@@ -91,6 +98,10 @@ export function PolicyChatPage() {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
+      if (file.size > MAX_FILE_SIZE) {
+        setError("File is too large. Maximum size is 5 MB.");
+        return;
+      }
       if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
         setUploadedFile(file);
         setError(null);
@@ -456,7 +467,7 @@ export function PolicyChatPage() {
                         Only insurance policy PDFs are accepted
                       </p>
                       <p className="text-xs text-gray-400">
-                        Max file size: 50MB
+                        Maximum file size: 5 MB
                       </p>
                     </div>
                   )}
