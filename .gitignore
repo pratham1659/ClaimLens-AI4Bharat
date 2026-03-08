@@ -221,6 +221,4 @@ terraform.tfvars
 .grunt
 .lock-wscript
 
-storage/documents/*
-storage/policies/*
 backend/rag_core_snapshot
