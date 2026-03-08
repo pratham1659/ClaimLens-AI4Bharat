@@ -1,6 +1,6 @@
 // frontend/src/pages/NewClaimPage.jsx
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useClaims } from "../hooks/useClaims";
@@ -25,6 +25,7 @@ export function NewClaimPage() {
     discharge_summary: null,
     insurance_policy: null,
   });
+  const pollingIntervalsRef = useRef({});
 
   const navigate = useNavigate();
   const { createClaim } = useClaims();
@@ -63,6 +64,13 @@ export function NewClaimPage() {
 
   const pollDocumentStatus = (documentType, documentId) => {
     if (!documentId) return;
+
+    const existingInterval = pollingIntervalsRef.current[documentType];
+    if (existingInterval) {
+      clearInterval(existingInterval);
+    }
+
+    let nonOkCount = 0;
     
     const pollInterval = setInterval(async () => {
       try {
@@ -77,6 +85,7 @@ export function NewClaimPage() {
         );
         
         if (response.ok) {
+          nonOkCount = 0;
           const docs = await response.json();
           const newStatus = docs.data?.status || docs.status;
           
@@ -88,19 +97,42 @@ export function NewClaimPage() {
             },
           }));
           
-          // Stop polling when processed
-          if (newStatus === "processed") {
+          // Stop polling on terminal statuses
+          if (newStatus === "processed" || newStatus === "failed") {
             clearInterval(pollInterval);
+            delete pollingIntervalsRef.current[documentType];
+          }
+        } else {
+          nonOkCount += 1;
+          if (nonOkCount >= 5) {
+            clearInterval(pollInterval);
+            delete pollingIntervalsRef.current[documentType];
           }
         }
       } catch (error) {
         console.error("Error polling document status:", error);
       }
     }, 2000); // Poll every 2 seconds
+
+    pollingIntervalsRef.current[documentType] = pollInterval;
     
     // Stop polling after 5 minutes
-    setTimeout(() => clearInterval(pollInterval), 300000);
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (pollingIntervalsRef.current[documentType] === pollInterval) {
+        delete pollingIntervalsRef.current[documentType];
+      }
+    }, 300000);
   };
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollingIntervalsRef.current).forEach((intervalId) => {
+        clearInterval(intervalId);
+      });
+      pollingIntervalsRef.current = {};
+    };
+  }, []);
 
   const handleDeleteDocument = (documentType) => {
     setUploadedDocs((prev) => ({
@@ -116,6 +148,39 @@ export function NewClaimPage() {
       return;
     }
     navigate(`/claims/${createdClaim.id}`);
+  };
+
+  const renderDocumentStatus = (doc, requiredLabel) => {
+    if (!doc) {
+      return (
+        <p className="text-xs text-gray-500">
+          {requiredLabel}: Not uploaded
+        </p>
+      );
+    }
+
+    const status = String(doc.status || "uploaded").toLowerCase();
+    if (status === "processed") {
+      return (
+        <p className="text-xs text-success-700 font-medium">
+          {requiredLabel}: Processed
+        </p>
+      );
+    }
+
+    if (status === "failed") {
+      return (
+        <p className="text-xs text-danger-700 font-medium">
+          {requiredLabel}: Processing failed — retry upload
+        </p>
+      );
+    }
+
+    return (
+      <p className="text-xs text-primary-700 font-medium">
+        {requiredLabel}: Processing...
+      </p>
+    );
   };
 
   return (
@@ -264,6 +329,7 @@ export function NewClaimPage() {
                 disabled={uploading}
                 onDelete={() => handleDeleteDocument("discharge_summary")}
               />
+              {renderDocumentStatus(uploadedDocs.discharge_summary, "Discharge Summary")}
               <DocumentUploader
                 documentType="insurance_policy"
                 onUpload={handleUpload}
@@ -272,6 +338,7 @@ export function NewClaimPage() {
                 disabled={uploading}
                 onDelete={() => handleDeleteDocument("insurance_policy")}
               />
+              {renderDocumentStatus(uploadedDocs.insurance_policy, "Insurance Policy")}
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-3 pt-2">
