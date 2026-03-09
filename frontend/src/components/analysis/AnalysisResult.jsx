@@ -1,4 +1,3 @@
-// frontend/src/components/analysis/AnalysisResult.jsx
 /**
  * Analysis result display component.
  */
@@ -82,9 +81,9 @@ export function AnalysisResult({ analysis }) {
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-gray-500 text-xs">Grounded Analysis</p>
+              <p className="text-gray-500 text-xs">Reasoning Mode</p>
               <p className="font-medium text-gray-900">
-                {analysis.debug_info.grounded_analysis_used ? "Yes" : "No"}
+                {analysis.debug_info.reasoning_mode === "grounded_rules" ? "Grounded Rules" : "LLM"}
               </p>
             </div>
             <div className="p-3 bg-gray-50 rounded-lg">
@@ -208,7 +207,7 @@ export function AnalysisResult({ analysis }) {
               <div key={index} className="p-4 bg-gray-50 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-gray-500">
-                    {formatClauseSourceLabel(clause.source_document)}
+                    Policy Clause {index + 1}
                   </span>
                   <span className="text-xs text-gray-400">
                     Relevance: {Math.round(clause.relevance_score * 100)}%

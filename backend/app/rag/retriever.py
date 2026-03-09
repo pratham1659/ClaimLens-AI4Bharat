@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.rag.embeddings import EmbeddingService, get_embedding_service
 from app.rag.vector_store import VectorStore
+from app.rag.query_builder import ClaimLensQueryBuilder
 from app.models.embedding import Embedding
+from app.llm.bedrock_client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,15 @@ class RAGRetriever:
         self.embedding_service = get_embedding_service(force_mode=force_mode)
         self.vector_store = VectorStore(db)
         self._local_retriever = None
+
+        # Initialize QueryBuilder with LLM for query transformation
+        try:
+            llm = get_llm_client()
+            self.query_builder = ClaimLensQueryBuilder(llm=llm)
+            logger.info("QueryBuilder initialized for improved clause retrieval")
+        except Exception as e:
+            logger.warning(f"Failed to initialize QueryBuilder: {e}. Falling back to direct queries.")
+            self.query_builder = None
 
         # Detect mode
         self.use_local_faiss = self._should_use_local_faiss()
@@ -140,8 +151,11 @@ class RAGRetriever:
         """
         Retrieve relevant document chunks for a query.
 
+        Transforms medical summaries/claims into structured queries for improved
+        policy clause matching via QueryBuilder before retrieval.
+
         Args:
-            query: Search query
+            query: Search query (medical summary or claim description)
             document_ids: Optional filter by document IDs
             top_k: Number of results to return
             use_hybrid: Whether to use hybrid search
@@ -150,15 +164,26 @@ class RAGRetriever:
         Returns:
             List of retrieved chunks with metadata
         """
+        # Transform query using QueryBuilder for better clause matching
+        retrieval_query = query
+        if self.query_builder:
+            try:
+                structured_query = await self.query_builder.build_query(query)
+                retrieval_query = structured_query.get("query", query)
+                logger.debug(f"Query transformed: '{query[:100]}...' → '{retrieval_query[:100]}...'")
+            except Exception as e:
+                logger.warning(f"Query transformation failed, using original: {e}")
+                retrieval_query = query
+
         # Try local FAISS retriever first if available and no document filter
         if self.use_local_faiss and document_ids is None:
-            local_results = await self._retrieve_local(query, top_k)
+            local_results = await self._retrieve_local(retrieval_query, top_k)
             if local_results:
                 return local_results
 
         # Fall back to pgvector-based search
         return await self._retrieve_pgvector(
-            query=query,
+            query=retrieval_query,
             document_ids=document_ids,
             top_k=top_k,
             use_hybrid=use_hybrid,

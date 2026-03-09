@@ -76,8 +76,33 @@ class ReasoningEngine:
             )
             retrieval_fallback_used = len(retrieved_clauses) > 0
 
+        # ---------------------------------------------------------
+        # Debug: compute claim-term grounding statistics
+        # ---------------------------------------------------------
+        claim_terms = self._extract_claim_terms(medical_extraction)
+
+        all_clause_text = " ".join(
+            [str(chunk.get("content", "")) for chunk in retrieved_clauses]
+        ).lower()
+
+        matched_terms = [
+            term for term in claim_terms if term in all_clause_text
+        ]
+
+        match_ratio = (
+            len(matched_terms) / len(claim_terms)
+            if claim_terms else 0.0
+        )
+
         # Build context
-        policy_context = self.retriever.build_context(retrieved_clauses)
+
+        reranked_clauses = sorted(
+            retrieved_clauses,
+            key=lambda x: x.get("relevance_score", 0),
+            reverse=True
+        )[:8]
+
+        policy_context = self.retriever.build_context(reranked_clauses)
 
         # Format claim information
         claim_info = self._format_claim_info(medical_extraction)
@@ -110,15 +135,23 @@ class ReasoningEngine:
         if "debug_info" not in response:
             response["debug_info"] = {
                 "grounded_analysis_used": self._should_use_grounded_analysis(),
+                "reasoning_mode": "grounded_rules" if self._should_use_grounded_analysis() else "llm",
                 "retrieved_clause_count": len(retrieved_clauses),
-                "matched_claim_terms": 0,
-                "total_claim_terms": 0,
-                "match_ratio": 0.0,
+                "matched_claim_terms": len(matched_terms),
+                "total_claim_terms": len(claim_terms),
+                "match_ratio": round(match_ratio, 3),
                 "retrieval_fallback_used": retrieval_fallback_used,
-                "model_id": settings.BEDROCK_MODEL_ID,
+                "reasoning_model_id": settings.BEDROCK_REASONING_MODEL_ID,
+                "sample_retrieved_clauses": [
+                    str(c.get("content", ""))[:200] for c in reranked_clauses[:3]
+                ],
             }
         else:
             response["debug_info"]["retrieval_fallback_used"] = retrieval_fallback_used
+            response["debug_info"]["reasoning_mode"] = "grounded_rules" if self._should_use_grounded_analysis() else "llm"
+            response["debug_info"]["sample_retrieved_clauses"] = [
+                str(c.get("content", ""))[:200] for c in reranked_clauses[:3]
+            ]
 
         # Parse and validate response
         analysis = self._parse_analysis_response(response)
@@ -145,9 +178,14 @@ class ReasoningEngine:
         return result
 
     def _should_use_grounded_analysis(self) -> bool:
+        """
+        Determine if grounded analysis should be used.
+        
+        Only uses grounded analysis if explicitly using mock LLM in dev mode.
+        Production should use Bedrock reasoning models.
+        """
         use_mock_llm = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
-        model_is_embedding_only = settings.BEDROCK_MODEL_ID.startswith("amazon.titan-embed")
-        return use_mock_llm or model_is_embedding_only
+        return use_mock_llm
 
     def _build_grounded_analysis(
         self,
@@ -329,7 +367,7 @@ class ReasoningEngine:
                 "match_ratio": round(match_ratio, 3),
                 "avg_clause_relevance": round(avg_relevance, 3),
                 "retrieval_fallback_used": False,
-                "model_id": settings.BEDROCK_MODEL_ID,
+                "reasoning_model_id": settings.BEDROCK_REASONING_MODEL_ID,
             },
         }
 
