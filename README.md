@@ -591,39 +591,39 @@ See [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) for detailed AWS depl
 
 ```
 ClaimLens-AI4Bharat/
-├── backend/                    # FastAPI backend
+├── backend/
 │   ├── app/
-│   │   ├── api/               # REST API endpoints
+│   │   ├── api/
 │   │   │   └── v1/
-│   │   │       └── endpoints/ # Route handlers
-│   │   ├── auth/              # Authentication
-│   │   ├── core/              # Config, exceptions, logging
-│   │   ├── db/                # Database session
-│   │   ├── ingestion/         # Document processing
-│   │   ├── llm/               # LLM clients
-│   │   ├── rag/               # RAG pipeline
-│   │   ├── retriever/         # Vector search
-│   │   ├── schemas/           # Pydantic models
-│   │   ├── services/          # Business logic
-│   │   └── utils/             # Utilities
-│   ├── alembic/               # Database migrations
-│   ├── scripts/               # CLI utilities
-│   └── tests/                 # Test suite
-├── frontend/                   # React frontend
+│   │   │       └── endpoints/
+│   │   ├── auth/
+│   │   ├── core/
+│   │   ├── db/
+│   │   ├── ingestion/
+│   │   ├── llm/
+│   │   ├── rag/
+│   │   ├── retriever/
+│   │   ├── schemas/
+│   │   ├── services/
+│   │   └── utils/
+│   ├── alembic/
+│   ├── scripts/
+│   └── tests/
+├── frontend/
 │   ├── src/
-│   │   ├── api/               # API clients
-│   │   ├── components/        # React components
-│   │   ├── context/           # React context
-│   │   ├── hooks/             # Custom hooks
-│   │   ├── pages/             # Page components
-│   │   └── utils/             # Utilities
-│   └── public/                # Static assets
-├── data/                       # Policy documents & indexes
-├── docs/                       # Documentation
-├── aws/                        # AWS CloudFormation
-├── docker-compose.yml          # Docker orchestration
-├── .env.sample                 # Environment template
-└── README.md                   # This file
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── context/
+│   │   ├── hooks/
+│   │   ├── pages/
+│   │   └── utils/
+│   └── public/
+├── data/
+├── docs/
+├── aws/
+├── docker-compose.yml
+├── .env.sample
+└── README.md
 ```
 
 ### Local Development Commands
