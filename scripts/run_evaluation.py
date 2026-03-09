@@ -11,7 +11,7 @@ import json
 print("Loading Documents...")
 
 docs_icici = load_policy_documents(
-    pdf_path="data/icici_complete_health.pdf",
+    pdf_path="data/policy_icici_complete_health.pdf",
     insurer="ICICI Lombard",
     policy_name="Complete Health Insurance",
     uin="ICIHLIP25035V082425",
@@ -19,7 +19,7 @@ docs_icici = load_policy_documents(
 )
 
 docs_niva = load_policy_documents(
-    pdf_path="data/niva_rise.pdf",
+    pdf_path="data/policy_niva_rise.pdf",
     insurer="Niva Bupa",
     policy_name="Rise Policy",
     uin="NIVHLIPXXXX",
@@ -60,7 +60,7 @@ retriever = ClaimLensRetriever(
 
 
 print("Loading Evaluation Queries from JSON...")
-with open("data/evaluation_queries/multiclause_queries.json", "r") as f:
+with open("data/evaluation_queries/evaluation_queries_2.json", "r") as f:
     raw_data = json.load(f)
 
 evaluation_queries = [
@@ -71,10 +71,9 @@ evaluation_queries = [
 
 print("Running Evaluation...")
 evaluator = RetrievalEvaluator()
-results = evaluator.evaluate_multi_clause(
+results = evaluator.evaluate_single_clause(
     retriever, 
     evaluation_queries,
-    diagnostics=True
 )
 
 

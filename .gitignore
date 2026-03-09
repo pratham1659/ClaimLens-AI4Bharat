@@ -9,3 +9,6 @@ __pycache__
 .venv
 .DS_Store
 backend/rag_core_snapshot
+.venv
+venv
+.vscode
