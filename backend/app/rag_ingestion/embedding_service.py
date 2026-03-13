@@ -102,3 +102,4 @@ class TitanEmbeddingService:
 
         tasks = [_one(text) for text in texts]
         return await asyncio.gather(*tasks)
+

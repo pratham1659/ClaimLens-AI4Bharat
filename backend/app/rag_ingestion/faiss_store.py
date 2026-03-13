@@ -111,3 +111,4 @@ class FaissStore:
         self.metadata_path.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(self.index, str(self.index_path))
         self.metadata_df.to_parquet(self.metadata_path, index=False)
+

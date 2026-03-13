@@ -6,10 +6,10 @@ from typing import Dict, List
 
 from pypdf import PdfReader
 
-from ingestion.clause_splitter import extract_clauses
-from ingestion.embedding_service import TitanEmbeddingService
-from storage.s3_client import S3IndexClient
-from vectorstore.faiss_store import FaissStore
+from app.rag_ingestion.clause_splitter import extract_clauses
+from app.rag_ingestion.embedding_service import TitanEmbeddingService
+from app.rag_ingestion.s3_client import S3IndexClient
+from app.rag_ingestion.faiss_store import FaissStore
 
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,13 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
+    """
+    Run the pre-indexed FAISS ingestion pipeline.
+
+    This mirrors the original `rag-system` entrypoint so that it can be
+    invoked directly from FastAPI endpoints without requiring a separate
+    package layout.
+    """
     rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
     rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else (root_dir / "indexes")
     index_path = rag_index_dir / "faiss.index"
@@ -154,3 +161,4 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     s3.upload_index_bundle(index_path, metadata_path)
 
     return len(clauses)
+

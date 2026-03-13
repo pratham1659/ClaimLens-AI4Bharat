@@ -74,3 +74,4 @@ class S3IndexClient:
             lambda: self.s3.download_file(self.bucket, "indexes/metadata.parquet", str(metadata_path)),
             "download metadata.parquet",
         )
+

@@ -84,3 +84,4 @@ def extract_clauses(pages: List[Dict], insurer: str) -> List[Dict]:
                 )
 
     return clauses
+

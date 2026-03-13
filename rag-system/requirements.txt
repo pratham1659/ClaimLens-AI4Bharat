@@ -1,8 +1,0 @@
-boto3
-faiss-cpu
-numpy
-pandas
-pyarrow
-pypdf
-fastapi
-uvicorn

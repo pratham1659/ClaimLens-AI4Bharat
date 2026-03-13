@@ -807,28 +807,13 @@ async def ingest_preindexed_policies(
     request: PreindexedIngestRequest = Body(default=PreindexedIngestRequest()),
     current_user: User = Depends(get_current_user),
 ):
+    # Prefer explicit RAG ingestion root when provided, otherwise fall back to
+    # the application root (/app in Docker) so that default storage paths like
+    # /app/storage/policies continue to work.
     rag_root = _resolve_rag_system_root()
     if rag_root is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "message": "rag-system directory was not found for ingestion trigger.",
-                "hint": "Set RAG_SYSTEM_ROOT env var or ensure repo contains rag-system/ alongside backend/.",
-            },
-        )
-
-    script = (
-        "import os\n"
-        "import sys\n"
-        "import json\n"
-        "from pathlib import Path\n"
-        "root = Path('.').resolve()\n"
-        "if str(root) not in sys.path:\n"
-        "    sys.path.insert(0, str(root))\n"
-        "from ingestion.pdf_loader import run_ingestion_pipeline\n"
-        f"indexed = run_ingestion_pipeline(root_dir=root, use_async={str(request.use_async)})\n"
-        "print(json.dumps({'indexed_clauses': indexed}))\n"
-    )
+        default_root = os.getenv("RAG_INGESTION_ROOT", "/app")
+        rag_root = Path(default_root).resolve()
 
     local_policy_dirs_raw = [
         os.getenv("RAG_POLICIES_DIR", "").strip(),
@@ -864,52 +849,34 @@ async def ingest_preindexed_policies(
             }
         )
 
-    def _run_ingest() -> subprocess.CompletedProcess:
+    def _run_ingest() -> Dict[str, Any]:
+        # Import locally to avoid import-time dependency when this endpoint is unused.
+        from app.rag_ingestion.pdf_loader import run_ingestion_pipeline
+
+        # Preserve existing default for index directory so that other parts of
+        # the system (e.g. /preindexed/info) and legacy tooling continue to
+        # discover indexes under /tmp/rag-system-indexes unless overridden.
         env = os.environ.copy()
         env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        rag_pythonpath = str(rag_root)
-        if existing_pythonpath:
-            env["PYTHONPATH"] = f"{rag_pythonpath}:{existing_pythonpath}"
-        else:
-            env["PYTHONPATH"] = rag_pythonpath
+        os.environ.update(env)
 
-        return subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(rag_root),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=max(60, int(request.timeout_seconds)),
-            check=False,
-        )
+        indexed = run_ingestion_pipeline(root_dir=rag_root, use_async=request.use_async)
+        return {"indexed_clauses": int(indexed)}
 
     try:
-        completed = await asyncio.to_thread(_run_ingest)
-    except subprocess.TimeoutExpired as timeout_error:
-        raise HTTPException(
-            status_code=504,
-            detail={
-                "message": "rag-system ingestion timed out.",
-                "timeout_seconds": max(60, int(request.timeout_seconds)),
-                "stderr": (timeout_error.stderr or "")[-1200:],
-            },
-        )
-
-    if completed.returncode != 0:
+        parsed_output = await asyncio.to_thread(_run_ingest)
+    except Exception as ingest_error:
         rag_root_entries: List[str] = []
         try:
             rag_root_entries = sorted([entry.name for entry in rag_root.iterdir()])
         except Exception:
-            rag_root_entries = []
+       	    rag_root_entries = []
 
         raise HTTPException(
             status_code=500,
             detail={
                 "message": "rag-system ingestion failed.",
-                "return_code": completed.returncode,
-                "stdout": (completed.stdout or "")[-1200:],
-                "stderr": (completed.stderr or "")[-1200:],
+                "stderr": str(ingest_error),
                 "diagnostics": {
                     "rag_system_root": str(rag_root),
                     "rag_system_root_exists": rag_root.exists(),
@@ -922,14 +889,6 @@ async def ingest_preindexed_policies(
                 },
             },
         )
-
-    output_lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
-    parsed_output: Dict[str, Any] = {}
-    if output_lines:
-        try:
-            parsed_output = json.loads(output_lines[-1])
-        except json.JSONDecodeError:
-            parsed_output = {"raw_output": output_lines[-1]}
 
     return {
         "success": True,
