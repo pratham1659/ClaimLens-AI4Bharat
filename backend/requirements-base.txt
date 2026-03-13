@@ -49,6 +49,7 @@ tenacity>=8.2.0
 backoff>=2.2.1
 orjson>=3.9.0
 tqdm>=4.66.0
+json5>=0.9.14
 
 # Data Processing
 numpy>=1.26.0
