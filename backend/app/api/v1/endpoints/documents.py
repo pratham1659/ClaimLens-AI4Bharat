@@ -30,7 +30,7 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from app.core.config import settings
 from app.core.exceptions import DocumentProcessingError
-from app.ingestion.pdf_parser import PDFParser
+from app.rag.ingestion.pdf_parser import PDFParser
 
 
 router = APIRouter(prefix="/documents", tags=["Documents"])

@@ -99,8 +99,8 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-claimlens}
       - REDIS_URL=redis://redis:6379/0
-      - RAG_SYSTEM_ROOT=/app/rag-system
       - RAG_POLICIES_DIR=/app/storage/policies
+      - RAG_INDEX_DIR=/app/storage/indexes
       - ENVIRONMENT=development
       - DEBUG=true
       # Local mode - Mock LLM, no model loading
@@ -114,10 +114,8 @@ services:
       - AWS_ENDPOINT_URL=http://localstack:4566
     volumes:
       - ./backend:/app
-      - ./rag-system:/app/rag-system
       - ./storage:/app/storage
       - ./backend/logs:/app/logs
-      - ./data:/app/data
     ports:
       - "8000:8000"
     depends_on:
@@ -147,8 +145,8 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - SECRET_KEY=${SECRET_KEY}
-      - RAG_SYSTEM_ROOT=/app/rag-system
       - RAG_POLICIES_DIR=/app/storage/policies
+      - RAG_INDEX_DIR=/app/storage/indexes
       - ENVIRONMENT=production
       - DEBUG=false
       # Production mode - AWS Bedrock
@@ -166,7 +164,6 @@ services:
       - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.titan-embed-text-v2:0}
       - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
     volumes:
-      - ./rag-system:/app/rag-system
       - ./storage:/app/storage
       - ./backend/logs:/app/logs
     ports:

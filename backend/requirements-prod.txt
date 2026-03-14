@@ -1,31 +1,44 @@
-# backend/requirements.txt
-# ClaimLens Insurance Platform - Python Dependencies
+# backend/requirements-prod.txt
+# Production dependencies - excludes dev/test packages for smaller image
+# Usage: pip install -r requirements-prod.txt
 
-# Core Web Framework
+
+# CORE WEB FRAMEWORK
+
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
-# Authentication & Security
+
+# AUTHENTICATION & SECURITY
+
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt>=4.0.1,<5.0.0
 
-# Data Validation
+
+# DATA VALIDATION
+
 pydantic[email]>=2.5.3
 pydantic-settings>=2.1.0
 
-# Database
+
+# DATABASE
+
 sqlalchemy[asyncio]>=2.0.25
 asyncpg>=0.29.0
 alembic>=1.13.1
 pgvector>=0.2.4
 
+
 # AWS
+
 boto3>=1.34.25
 botocore>=1.34.25
 
-# Document Processing
+
+# DOCUMENT PROCESSING
+
 PyMuPDF>=1.23.8
 pdfminer.six>=20231228
 pdfplumber>=0.11.0
@@ -34,22 +47,30 @@ Pillow>=10.2.0
 pytesseract>=0.3.10
 filetype>=1.2.0
 
-# LangChain & AI
+
+# LANGCHAIN & AI
+
 langchain>=0.1.0
 langchain-aws>=0.1.0
 langchain-core>=0.1.0
 langchain-community>=0.0.20
 langchain-text-splitters>=0.0.1
 
-# Vector Store & Embeddings
+
+# VECTOR STORE & EMBEDDINGS
+
 faiss-cpu>=1.7.4
 
-# Async & HTTP
+
+# ASYNC & HTTP
+
 aiohttp>=3.9.0
 anyio>=4.0.0
 httpx>=0.26.0
 
-# Utilities
+
+# UTILITIES
+
 python-json-logger>=2.0.7
 python-dotenv>=1.0.0
 python-dateutil>=2.8.2
@@ -61,21 +82,17 @@ backoff>=2.2.1
 orjson>=3.9.0
 tqdm>=4.66.0
 
-# Data Processing
+
+# DATA PROCESSING
+
 numpy>=1.26.0
 pandas>=2.1.0
+pyarrow>=14.0.0
 scipy>=1.11.0
 scikit-learn>=1.3.0
 
-# Logging & Monitoring
+
+# LOGGING & MONITORING
+
 opentelemetry-api>=1.22.0
 opentelemetry-sdk>=1.22.0
-
-# Testing
-pytest>=7.4.0
-pytest-asyncio>=0.23.0
-
-# Development
-black>=24.1.0
-isort>=5.13.0
-mypy>=1.8.0

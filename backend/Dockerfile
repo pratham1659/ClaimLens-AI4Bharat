@@ -10,9 +10,9 @@
 #   local: ~1.5GB (with PyTorch CPU-only + sentence-transformers)
 #   prod:  ~800MB (no PyTorch, uses AWS Bedrock for embeddings)
 
-# ============================================
+
 # BASE STAGE - Common dependencies
-# ============================================
+
 FROM python:3.11-slim AS base
 
 # Set environment variables
@@ -32,34 +32,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# ============================================
+
 # PROD-DEPS STAGE - Production dependencies only
-# ============================================
+
 FROM base AS prod-deps
 
-# Copy only base requirements (no ML dependencies)
-COPY requirements-base.txt .
+# Copy production requirements file
+COPY requirements-prod.txt .
 
-# Install production dependencies (no PyTorch)
-RUN pip install --no-cache-dir -r requirements-base.txt
+# Install production dependencies (no PyTorch, no dev/test packages)
+RUN pip install --no-cache-dir -r requirements-prod.txt
 
-# Install lightweight rag-system ingestion/indexing dependencies used by
-# /api/v1/policies/preindexed/ingest endpoint.
-RUN pip install --no-cache-dir \
-    faiss-cpu>=1.7.4 \
-    pandas>=2.1.0 \
-    pyarrow>=14.0.0
 
-# Install LangChain without heavy ML deps
-RUN pip install --no-cache-dir \
-    langchain>=0.1.0 \
-    langchain-aws>=0.1.0 \
-    langchain-core>=0.1.0 \
-    langchain-text-splitters>=0.0.1
-
-# ============================================
 # LOCAL-DEPS STAGE - Development with ML
-# ============================================
+
 FROM base AS local-deps
 
 # HuggingFace cache directories (for local embedding models)
@@ -67,26 +53,22 @@ ENV HF_HOME=/app/models
 ENV TRANSFORMERS_CACHE=/app/models
 ENV TORCH_HOME=/app/models
 
-# Copy requirements files
-COPY requirements-base.txt .
-COPY requirements-ml.txt .
+# Copy local development requirements file
+COPY requirements-local.txt .
 
-# Install base dependencies first (better layer caching)
-RUN pip install --no-cache-dir -r requirements-base.txt
+# Install all dependencies including dev/test
+RUN pip install --no-cache-dir -r requirements-local.txt
 
 # Install PyTorch CPU-only version (much smaller than full PyTorch)
 # This reduces image size from ~2.5GB to ~1.5GB
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install ML dependencies
-RUN pip install --no-cache-dir -r requirements-ml.txt
-
 # Create directories for models and indexes
 RUN mkdir -p /app/models /app/logs /app/faiss_claimlens_index /app/faiss_claimlens_combined_index
 
-# ============================================
+
 # LOCAL STAGE - Development build (~1.5GB)
-# ============================================
+
 FROM local-deps AS local
 
 # Install development tools
@@ -108,9 +90,9 @@ EXPOSE 8000
 # Development command with hot-reload
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
-# ============================================
+
 # PROD STAGE - Production build (~800MB)
-# ============================================
+
 FROM prod-deps AS prod
 
 # Copy application code
