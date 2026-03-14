@@ -18,7 +18,7 @@ from app.models.analysis import AnalysisResult
 from app.models.user import User
 from app.schemas.analysis import AnalysisResponse
 from app.services.document_service import DocumentService
-from app.ingestion.medical_extractor import MedicalExtractor
+from app.rag.ingestion.medical_extractor import MedicalExtractor
 from app.llm.reasoning_engine import ReasoningEngine
 from app.core.exceptions import (
     ResourceNotFoundError,

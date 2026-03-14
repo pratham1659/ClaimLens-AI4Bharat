@@ -1,14 +1,23 @@
+# backend/app/ingestion/rag_clause_splitter.py
+"""
+Clause splitting for RAG/FAISS indexing of insurance policy documents.
+Used for pre-indexed policy ingestion pipeline.
+"""
+
 import re
 from typing import Dict, Iterable, List
 
 
 SECTION_SPLIT_PATTERN = re.compile(r"\n\s*(?=\d+(?:\.\d+)*\s+[A-Za-z])")
-BULLET_SPLIT_PATTERN = re.compile(r"\n\s*(?=(?:[-•*]|\(?[a-zA-Z]\)|\(?[ivxIVX]+\)))")
+BULLET_SPLIT_PATTERN = re.compile(
+    r"\n\s*(?=(?:[-•*]|\(?[a-zA-Z]\)|\(?[ivxIVX]+\)))")
 PARAGRAPH_SPLIT_PATTERN = re.compile(r"\n\s*\n")
-SECTION_HEADER_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)*)\s+([A-Za-z][^\n]{1,80})")
+SECTION_HEADER_PATTERN = re.compile(
+    r"^\s*(\d+(?:\.\d+)*)\s+([A-Za-z][^\n]{1,80})")
 
 
 def _split_text_blocks(text: str) -> Iterable[str]:
+    """Split text into semantic blocks by sections, bullets, paragraphs."""
     section_blocks = SECTION_SPLIT_PATTERN.split(text)
 
     for section_block in section_blocks:
@@ -29,6 +38,7 @@ def _split_text_blocks(text: str) -> Iterable[str]:
 
 
 def _chunk_by_max_tokens(text: str, max_tokens: int = 500) -> List[str]:
+    """Chunk text by maximum token count."""
     tokens = text.split()
     if not tokens:
         return []
@@ -45,11 +55,13 @@ def _chunk_by_max_tokens(text: str, max_tokens: int = 500) -> List[str]:
 
 
 def _extract_policy_name(source_pdf: str) -> str:
+    """Extract policy name from source PDF filename."""
     name = source_pdf.rsplit(".", 1)[0]
     return name.replace("_", " ").replace("-", " ").strip()
 
 
 def _extract_section(block: str) -> str:
+    """Extract section header from text block."""
     match = SECTION_HEADER_PATTERN.match(block)
     if match:
         return match.group(2).strip()
@@ -57,6 +69,16 @@ def _extract_section(block: str) -> str:
 
 
 def extract_clauses(pages: List[Dict], insurer: str) -> List[Dict]:
+    """
+    Extract clauses from policy document pages.
+
+    Args:
+        pages: List of page dictionaries with 'page', 'text', 'source_pdf' keys
+        insurer: Name of the insurance company
+
+    Returns:
+        List of clause dictionaries with metadata
+    """
     clauses: List[Dict] = []
     clause_counter = 0
 

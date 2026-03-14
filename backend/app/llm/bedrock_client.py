@@ -6,6 +6,7 @@ import os
 import re
 import logging
 import json
+import json5
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 
@@ -335,35 +336,38 @@ class BedrockClient(BaseLLMClient):
         try:
 
             # Remove markdown code blocks if Claude added them
-            cleaned = re.sub(r"```json", "", content)
+            cleaned = re.sub(r"```json", "", content, flags=re.IGNORECASE)
             cleaned = re.sub(r"```", "", cleaned).strip()
+            
+            # Extract JSON object
+            match = re.search(r"\{[\s\S]*\}", cleaned)
 
-            # Extract JSON object boundaries
-            json_start = cleaned.find("{")
-            json_end = cleaned.rfind("}") + 1
-
-            if json_start != -1 and json_end > json_start:
-                json_str = cleaned[json_start:json_end]
-            else:
-                json_str = cleaned
-
-            # Remove carriage returns
-            json_str = json_str.replace("\r", " ")
-
+            if not match:
+                raise ValueError("No JSON object found in LLM response")
+            
+            json_str = match.group(0)
+            json_str = json_str.strip()
+            
             # Remove illegal control characters
-            json_str = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", " ", json_str)
+            json_str = re.sub(r"[\x00-\x1F\x7F]", " ", json_str)
+
+            # Remove trailing commas
+            json_str = re.sub(r",\s*}", "}", json_str)
+            json_str = re.sub(r",\s*]", "]", json_str)
 
             try:
-                return json.loads(json_str)
+                return json5.loads(json_str)
             except json.JSONDecodeError:
-                logger.warning("Malformed JSON from LLM, attempting secondary cleanup")
+                logger.warning("Standard JSON parse failed, attempting json5 repair")
+                
+                try:
+                    return json5.loads(json_str)
+                except Exception:
+                    logger.error("json5 repair failed")
+                    raise
 
-                # Second cleanup pass for newlines/tabs sometimes inserted by LLM
-                repaired = json_str.replace("\n", " ").replace("\t", " ")
+        except Exception as e:
 
-                return json.loads(repaired)
-
-        except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {str(e)}")
             logger.error(f"Raw LLM response:\n{content}")
 

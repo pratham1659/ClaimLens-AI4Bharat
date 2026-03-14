@@ -68,9 +68,11 @@ class RAGRetriever:
         try:
             llm = get_llm_client()
             self.query_builder = ClaimLensQueryBuilder(llm=llm)
-            logger.info("QueryBuilder initialized for improved clause retrieval")
+            logger.info(
+                "QueryBuilder initialized for improved clause retrieval")
         except Exception as e:
-            logger.warning(f"Failed to initialize QueryBuilder: {e}. Falling back to direct queries.")
+            logger.warning(
+                f"Failed to initialize QueryBuilder: {e}. Falling back to direct queries.")
             self.query_builder = None
 
         # Detect mode
@@ -92,7 +94,7 @@ class RAGRetriever:
         """Lazy load the local FAISS-based retriever."""
         if self._local_retriever is None and self.use_local_faiss:
             try:
-                from app.retriever.embeddings import load_embedding_model
+                from app.rag.embeddings import load_embedding_model
                 from langchain_core.documents import Document as LangchainDoc
                 from langchain_community.vectorstores import FAISS
                 import json
@@ -170,9 +172,11 @@ class RAGRetriever:
             try:
                 structured_query = await self.query_builder.build_query(query)
                 retrieval_query = structured_query.get("query", query)
-                logger.debug(f"Query transformed: '{query[:100]}...' → '{retrieval_query[:100]}...'")
+                logger.debug(
+                    f"Query transformed: '{query[:100]}...' → '{retrieval_query[:100]}...'")
             except Exception as e:
-                logger.warning(f"Query transformation failed, using original: {e}")
+                logger.warning(
+                    f"Query transformation failed, using original: {e}")
                 retrieval_query = query
 
         # Try local FAISS retriever first if available and no document filter
@@ -317,7 +321,8 @@ class RAGRetriever:
                     )
 
             if not results:
-                min_similarity_raw = os.getenv("POLICY_SEARCH_MIN_SIMILARITY", "")
+                min_similarity_raw = os.getenv(
+                    "POLICY_SEARCH_MIN_SIMILARITY", "")
                 min_similarity = None
                 if min_similarity_raw.strip():
                     min_similarity = float(min_similarity_raw)
@@ -334,7 +339,8 @@ class RAGRetriever:
             if results:
                 reranked = []
                 for embedding, base_score in results:
-                    lexical_boost = self._calculate_lexical_boost(query, embedding.chunk_text)
+                    lexical_boost = self._calculate_lexical_boost(
+                        query, embedding.chunk_text)
                     combined_score = float(base_score) + lexical_boost
                     reranked.append((embedding, combined_score))
 
@@ -365,18 +371,22 @@ class RAGRetriever:
 
     def _calculate_lexical_boost(self, query: str, content: str) -> float:
         """Compute lexical boost for query/content overlap."""
-        normalized_query = re.sub(r"\s+", " ", str(query or "").strip().lower())
-        normalized_content = re.sub(r"\s+", " ", str(content or "").strip().lower())
+        normalized_query = re.sub(
+            r"\s+", " ", str(query or "").strip().lower())
+        normalized_content = re.sub(
+            r"\s+", " ", str(content or "").strip().lower())
 
         if not normalized_query or not normalized_content:
             return 0.0
 
-        query_terms = [term for term in re.findall(r"[a-z0-9]+", normalized_query) if len(term) > 2]
+        query_terms = [term for term in re.findall(
+            r"[a-z0-9]+", normalized_query) if len(term) > 2]
         if not query_terms:
             return 0.0
 
         unique_terms = list(dict.fromkeys(query_terms))
-        term_hits = sum(1 for term in unique_terms if term in normalized_content)
+        term_hits = sum(
+            1 for term in unique_terms if term in normalized_content)
         term_hit_ratio = term_hits / max(1, len(unique_terms))
         phrase_hit = 1.0 if normalized_query in normalized_content else 0.0
 

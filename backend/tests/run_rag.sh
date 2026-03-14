@@ -21,7 +21,7 @@
 #
 # export_clauses.py - Exports all extracted policy clauses to a JSON file for
 #                     inspection, debugging, or use in other systems.
-#                     Output: data/all_clauses.json
+#                     Output: storage/clauses/all_clauses.json
 #
 # main.py           - Basic clause extraction script that demonstrates the
 #                     clause-based splitting from policy PDFs. Shows extracted
@@ -87,7 +87,7 @@ print_help() {
     echo "              Script: run_evaluation.py"
     echo ""
     echo -e "  ${GREEN}export${NC}      Export all clauses to JSON file"
-    echo "              Outputs to data/all_clauses.json"
+    echo "              Outputs to storage/clauses/all_clauses.json"
     echo "              Script: export_clauses.py"
     echo ""
     echo -e "  ${GREEN}main${NC}        Run basic clause extraction demo"
@@ -157,7 +157,7 @@ list_scripts() {
     echo -e "  ${GREEN}export_clauses.py${NC}"
     echo "    Purpose: Exports extracted clauses to JSON"
     echo "    Input:   Policy PDFs (data/*.pdf)"
-    echo "    Output:  data/all_clauses.json"
+    echo "    Output:  storage/clauses/all_clauses.json"
     echo "    Command: ./run_rag.sh export"
     echo ""
     echo -e "  ${GREEN}main.py${NC}"
@@ -237,8 +237,8 @@ print_status() {
     
     # Check exported clauses
     echo -n "  Exported Clauses:  "
-    if [[ -f "$DATA_DIR/all_clauses.json" ]]; then
-        CLAUSE_COUNT=$(python3 -c "import json; d=json.load(open('$DATA_DIR/all_clauses.json')); print(len(d.get('clauses', d)))" 2>/dev/null || echo "?")
+    if [[ -f "$PROJECT_ROOT/storage/clauses/all_clauses.json" ]]; then
+        CLAUSE_COUNT=$(python3 -c "import json; d=json.load(open('$PROJECT_ROOT/storage/clauses/all_clauses.json')); print(len(d.get('clauses', d)))" 2>/dev/null || echo "?")
         echo -e "${GREEN}✓${NC} Found ($CLAUSE_COUNT clauses)"
     else
         echo -e "${YELLOW}⚠${NC} Not exported (run ./run_rag.sh export)"

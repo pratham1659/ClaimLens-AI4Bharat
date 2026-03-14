@@ -84,6 +84,7 @@ click>=8.1.0
 tenacity>=8.2.0
 backoff>=2.2.1
 orjson>=3.9.0
+json5>=0.9.14
 tqdm>=4.66.0
 
 

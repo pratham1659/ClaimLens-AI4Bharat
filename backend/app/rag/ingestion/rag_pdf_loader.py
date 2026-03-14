@@ -1,3 +1,9 @@
+# backend/app/ingestion/rag_pdf_loader.py
+"""
+PDF loading and ingestion pipeline for insurance policy documents.
+Used for RAG/FAISS index generation.
+"""
+
 import asyncio
 import os
 import logging
@@ -6,10 +12,10 @@ from typing import Dict, List
 
 from pypdf import PdfReader
 
-from ingestion.clause_splitter import extract_clauses
-from ingestion.embedding_service import TitanEmbeddingService
-from storage.s3_client import S3IndexClient
-from vectorstore.faiss_store import FaissStore
+from app.rag.ingestion.rag_clause_splitter import extract_clauses
+from app.rag.embeddings import TitanEmbeddingService
+from app.rag.storage.s3_client import S3IndexClient
+from app.rag.vectorstore.faiss_store import FaissStore
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +64,7 @@ def resolve_policy_pdf_paths(root_dir: Path) -> List[Path]:
 
 
 def infer_insurer_from_filename(filename: str) -> str:
+    """Infer insurer name from PDF filename."""
     lowered = filename.lower()
     if "icici" in lowered:
         return "ICICI"
@@ -67,6 +74,7 @@ def infer_insurer_from_filename(filename: str) -> str:
 
 
 def load_pdf_pages(pdf_path: Path) -> List[Dict]:
+    """Load all pages from a PDF file."""
     reader = PdfReader(str(pdf_path))
     pages: List[Dict] = []
 
@@ -85,6 +93,7 @@ def load_pdf_pages(pdf_path: Path) -> List[Dict]:
 
 
 def load_policy_documents(policies_dir: Path) -> List[Dict]:
+    """Load all policy documents from a directory."""
     all_pages: List[Dict] = []
     for pdf_path in sorted(policies_dir.glob("*.pdf")):
         all_pages.extend(load_pdf_pages(pdf_path))
@@ -92,8 +101,19 @@ def load_policy_documents(policies_dir: Path) -> List[Dict]:
 
 
 def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
+    """
+    Run the full ingestion pipeline for policy documents.
+
+    Args:
+        root_dir: Root directory containing policy documents
+        use_async: Whether to use async embedding generation
+
+    Returns:
+        Number of clauses indexed
+    """
     rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
-    rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else (root_dir / "indexes")
+    rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else (
+        root_dir / "indexes")
     index_path = rag_index_dir / "faiss.index"
     metadata_path = rag_index_dir / "metadata.parquet"
     aws_region = os.getenv("AWS_REGION", "us-east-1")
@@ -130,16 +150,19 @@ def run_ingestion_pipeline(root_dir: Path, use_async: bool = True) -> int:
     if use_async:
         try:
             embeddings = asyncio.run(
-                embedding_service.embed_batch_async(texts, concurrency=max(1, concurrency))
+                embedding_service.embed_batch_async(
+                    texts, concurrency=max(1, concurrency))
             )
         except Exception as async_error:
             logger.warning(
                 "Async embedding failed (%s). Falling back to sequential embedding.",
                 async_error,
             )
-            embeddings = embedding_service.embed_batch(texts, batch_size=max(1, batch_size))
+            embeddings = embedding_service.embed_batch(
+                texts, batch_size=max(1, batch_size))
     else:
-        embeddings = embedding_service.embed_batch(texts, batch_size=max(1, batch_size))
+        embeddings = embedding_service.embed_batch(
+            texts, batch_size=max(1, batch_size))
 
     store = FaissStore(
         index_path=index_path,

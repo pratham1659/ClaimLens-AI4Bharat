@@ -21,7 +21,7 @@ Output Format:
     ]
 
 Output File:
-    data/all_clauses.json (default)
+    storage/clauses/all_clauses.json (default)
     
 Usage:
     cd backend && python3 scripts/export_clauses.py
@@ -48,6 +48,9 @@ sys.path.insert(0, BACKEND_DIR)
 
 # Configuration from environment
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(PROJECT_ROOT, "data"))
+STORAGE_DIR = os.environ.get(
+    "STORAGE_DIR", os.path.join(PROJECT_ROOT, "storage"))
+CLAUSES_DIR = os.path.join(STORAGE_DIR, "clauses")
 
 # Now import app modules
 
@@ -155,7 +158,7 @@ def main():
     parser = argparse.ArgumentParser(description="Export clauses to JSON")
     parser.add_argument(
         "--output", "-o",
-        default=os.path.join(DATA_DIR, "all_clauses.json"),
+        default=os.path.join(CLAUSES_DIR, "all_clauses.json"),
         help="Output file path"
     )
     args = parser.parse_args()

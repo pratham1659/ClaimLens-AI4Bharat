@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Clock,
   Check,
+  XCircle,
 } from "lucide-react";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
@@ -24,6 +25,7 @@ import { useDocuments } from "../hooks/useDocuments";
 import { useAnalysis } from "../hooks/useAnalysis";
 import { StatusBadge } from "../components/common/Badge";
 import { AnalysisResult } from "../components/analysis/AnalysisResult";
+import { AnalysisHistory } from "../components/analysis/AnalysisHistory";
 import { LoadingSpinner } from "../components/common/LoadingSpinner";
 import { CardSkeleton } from "../components/common/Skeleton";
 import { documentsAPI } from "../services/api";
@@ -50,6 +52,7 @@ export function ClaimDetailPage() {
     loading: analysisLoading,
     analyzeClaim,
     fetchAnalysis,
+    fetchHistory,
   } = useAnalysis();
 
   const [claim, setClaim] = useState(null);
@@ -58,6 +61,9 @@ export function ClaimDetailPage() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [missingDocWarning, setMissingDocWarning] = useState(null);
+  const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [analysisFailed, setAnalysisFailed] = useState(false);
   const fileInputRef = useRef(null);
   const [uploadingType, setUploadingType] = useState(null);
   const [allUserPolicies, setAllUserPolicies] = useState([]);
@@ -136,6 +142,7 @@ export function ClaimDetailPage() {
 
   const loadClaimData = async () => {
     setLoading(true);
+    setHistoryLoading(true);
     try {
       const [claimData, docs] = await Promise.all([
         getClaim(claimId),
@@ -151,10 +158,20 @@ export function ClaimDetailPage() {
       if (hasProcessingDocs) {
         startDocumentPolling();
       }
+
+      // Fetch analysis history
+      try {
+        const history = await fetchHistory(claimId);
+        setAnalysisHistory(history || []);
+      } catch {
+        // History fetch error is non-critical
+        setAnalysisHistory([]);
+      }
     } catch (error) {
       navigate("/claims");
     } finally {
       setLoading(false);
+      setHistoryLoading(false);
     }
   };
 
@@ -176,6 +193,7 @@ export function ClaimDetailPage() {
 
     setShowAnalysisModal(true);
     setAnalysisProgress(0);
+    setAnalysisFailed(false);
 
     // Simulate progress
     const progressInterval = setInterval(() => {
@@ -188,10 +206,17 @@ export function ClaimDetailPage() {
     try {
       await analyzeClaim(claimId);
       setAnalysisProgress(100);
+      setAnalysisFailed(false);
 
       // Refresh claim data to get updated status
       const updatedClaim = await getClaim(claimId);
       setClaim(updatedClaim);
+
+      // Refresh analysis history after successful analysis
+      try {
+        const history = await fetchHistory(claimId);
+        setAnalysisHistory(history || []);
+      } catch {}
 
       setTimeout(() => {
         setShowAnalysisModal(false);
@@ -199,11 +224,21 @@ export function ClaimDetailPage() {
       }, 500);
     } catch {
       // Error toast is handled in the hook
+      // Mark analysis as failed
+      setAnalysisFailed(true);
+
       // Also refresh claim to get failed status
       try {
         const updatedClaim = await getClaim(claimId);
         setClaim(updatedClaim);
       } catch {}
+
+      // Refresh history even on failure (may contain partial/failed records)
+      try {
+        const history = await fetchHistory(claimId);
+        setAnalysisHistory(history || []);
+      } catch {}
+
       setShowAnalysisModal(false);
     } finally {
       clearInterval(progressInterval);
@@ -728,11 +763,35 @@ export function ClaimDetailPage() {
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
           Compliance Analysis
         </h2>
+
+        {/* Analysis Failed Status Banner */}
+        {analysisFailed && !analysis && (
+          <div className="mb-4 p-4 bg-danger-50 border border-danger-200 rounded-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-danger-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <XCircle className="w-5 h-5 text-danger-600" />
+              </div>
+              <div>
+                <h4 className="font-medium text-danger-800">Analysis Failed</h4>
+                <p className="text-sm text-danger-600">
+                  The analysis could not be completed. Please check your
+                  documents and try again.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {analysisLoading ? (
           <CardSkeleton />
         ) : (
           <AnalysisResult analysis={analysis} />
         )}
+      </div>
+
+      {/* Analysis History - Audit Log */}
+      <div>
+        <AnalysisHistory history={analysisHistory} loading={historyLoading} />
       </div>
 
       {/* Delete Confirmation Modal */}
