@@ -68,44 +68,39 @@ class PreindexedIngestRequest(BaseModel):
     timeout_seconds: int = 900
 
 
-def _resolve_rag_system_root() -> Optional[Path]:
-    env_root = os.getenv("RAG_SYSTEM_ROOT", "").strip()
+def _resolve_rag_index_dir() -> Optional[Path]:
+    """Resolve the RAG index directory for FAISS indexes and metadata."""
+    env_index_dir = os.getenv("RAG_INDEX_DIR", "").strip()
     candidates: List[Path] = []
 
-    if env_root:
-        candidates.append(Path(env_root))
+    if env_index_dir:
+        candidates.append(Path(env_index_dir))
 
     candidates.extend(
         [
-            Path(__file__).resolve().parents[5] / "rag-system",
-            Path.cwd() / "rag-system",
-            Path("/app/rag-system"),
-            Path("/workspace/rag-system"),
+            Path(__file__).resolve().parents[5] / "storage" / "indexes",
+            Path.cwd() / "storage" / "indexes",
+            Path("/app/storage/indexes"),
+            Path("/tmp/rag-indexes"),
         ]
     )
 
     for candidate in candidates:
-        ingestion_file = candidate / "ingestion" / "pdf_loader.py"
-        if candidate.exists() and ingestion_file.exists():
+        if candidate.exists() and (candidate / "faiss.index").exists():
+            return candidate.resolve()
+        if candidate.exists() and (candidate / "metadata.parquet").exists():
             return candidate.resolve()
 
     return None
 
 
-def _search_rag_system_preindexed(query: str, top_k: int) -> List[Dict[str, Any]]:
-    """Search preindexed FAISS bundle from rag-system if available."""
-    rag_root = _resolve_rag_system_root()
-    if rag_root is None:
-        return []
-
+def _search_rag_preindexed(query: str, top_k: int) -> List[Dict[str, Any]]:
+    """Search preindexed FAISS bundle using consolidated RAG module."""
     try:
-        if str(rag_root) not in sys.path:
-            sys.path.insert(0, str(rag_root))
+        from app.rag.faiss_retriever import get_faiss_retriever
 
-        from retrieval.retriever import Retriever as RagSystemRetriever
-
-        rag_retriever = RagSystemRetriever(root_dir=rag_root)
-        rag_results = rag_retriever.search(query=query, k=top_k)
+        retriever = get_faiss_retriever()
+        rag_results = retriever.search(query=query, k=top_k)
 
         mapped_chunks: List[Dict[str, Any]] = []
         for idx, item in enumerate(rag_results):
@@ -123,27 +118,27 @@ def _search_rag_system_preindexed(query: str, top_k: int) -> List[Dict[str, Any]
                         "section": item.get("section"),
                         "source_pdf": item.get("source_pdf"),
                     },
-                    "source": "rag_system_faiss",
+                    "source": "rag_faiss",
                 }
             )
 
         return mapped_chunks
     except Exception as error:
-        logger.warning("rag-system preindexed retrieval failed: %s", error)
+        logger.warning("RAG preindexed retrieval failed: %s", error)
         return []
 
 
 def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]:
-    """Fallback lexical search over rag-system metadata.parquet when semantic retrieval is unavailable."""
-    rag_root = _resolve_rag_system_root()
-    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    """Fallback lexical search over RAG metadata.parquet when semantic retrieval is unavailable."""
+    rag_index_dir = _resolve_rag_index_dir()
 
     index_candidates: List[Path] = []
-    if rag_index_dir_raw:
-        index_candidates.append(Path(rag_index_dir_raw))
-    if rag_root is not None:
-        index_candidates.append(rag_root / "indexes")
-    index_candidates.append(Path("/tmp/rag-system-indexes"))
+    if rag_index_dir is not None:
+        index_candidates.append(rag_index_dir)
+    index_candidates.extend([
+        Path("/app/storage/indexes"),
+        Path("/tmp/rag-indexes"),
+    ])
 
     metadata_file: Optional[Path] = None
     for candidate in index_candidates:
@@ -162,10 +157,13 @@ def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]
         if metadata_df.empty or "text" not in metadata_df.columns:
             return []
 
-        normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
-        query_terms = {term for term in normalized_query.split() if len(term) > 2}
+        normalized_query = "".join(
+            ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
+        query_terms = {term for term in normalized_query.split()
+                       if len(term) > 2}
         if not query_terms:
-            query_terms = {normalized_query.strip()} if normalized_query.strip() else set()
+            query_terms = {normalized_query.strip(
+            )} if normalized_query.strip() else set()
 
         scored_rows: List[Dict[str, Any]] = []
         for row in metadata_df.to_dict(orient="records"):
@@ -173,9 +171,12 @@ def _search_rag_metadata_lexical(query: str, top_k: int) -> List[Dict[str, Any]]
             if not text:
                 continue
 
-            lowered_text = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text)
-            term_hits = sum(1 for term in query_terms if term and term in lowered_text)
-            phrase_hit = 2 if normalized_query.strip() and normalized_query.strip() in lowered_text else 0
+            lowered_text = "".join(ch.lower() if ch.isalnum(
+            ) or ch.isspace() else " " for ch in text)
+            term_hits = sum(
+                1 for term in query_terms if term and term in lowered_text)
+            phrase_hit = 2 if normalized_query.strip(
+            ) and normalized_query.strip() in lowered_text else 0
             score = term_hits + phrase_hit
             if score <= 0:
                 continue
@@ -255,11 +256,12 @@ async def _collect_search_diagnostics(db: AsyncSession) -> Dict[str, Any]:
     embedding_count = int(embedding_count_result.scalar() or 0)
 
     faiss_path = os.getenv("FAISS_INDEX_PATH", "faiss_claimlens_index")
-    combined_faiss_path = os.getenv("FAISS_COMBINED_INDEX_PATH", "faiss_claimlens_combined_index")
+    combined_faiss_path = os.getenv(
+        "FAISS_COMBINED_INDEX_PATH", "faiss_claimlens_combined_index")
     clauses_paths = [
-        "data/all_clauses.json",
-        "/app/data/all_clauses.json",
-        "../data/all_clauses.json",
+        "storage/clauses/all_clauses.json",
+        "/app/storage/clauses/all_clauses.json",
+        "../storage/clauses/all_clauses.json",
     ]
 
     return {
@@ -390,9 +392,11 @@ async def search_policies(
 
     if request.document_ids:
         filtered_embedding_count_result = await db.execute(
-            select(func.count(Embedding.id)).where(Embedding.document_id.in_(request.document_ids))
+            select(func.count(Embedding.id)).where(
+                Embedding.document_id.in_(request.document_ids))
         )
-        filtered_embedding_count = int(filtered_embedding_count_result.scalar() or 0)
+        filtered_embedding_count = int(
+            filtered_embedding_count_result.scalar() or 0)
 
         if filtered_embedding_count == 0:
             raise HTTPException(
@@ -600,14 +604,14 @@ async def chat_with_policy(
         logger.info("Using local FAISS retriever for pre-indexed policies")
         retrieved_chunks = await retriever._retrieve_local(message, top_k=5)
 
-    # Fallback to rag-system preindexed bundle even when local FAISS mode is disabled.
+    # Fallback to RAG preindexed bundle even when local FAISS mode is disabled.
     if not retrieved_chunks:
-        logger.info("Using rag-system FAISS fallback for policy chat")
-        retrieved_chunks = _search_rag_system_preindexed(query=message, top_k=5)
+        logger.info("Using RAG FAISS fallback for policy chat")
+        retrieved_chunks = _search_rag_preindexed(query=message, top_k=5)
 
     # Final fallback to lexical metadata search when semantic retrieval is unavailable.
     if not retrieved_chunks:
-        logger.info("Using rag-system metadata lexical fallback for policy chat")
+        logger.info("Using RAG metadata lexical fallback for policy chat")
         retrieved_chunks = _search_rag_metadata_lexical(query=message, top_k=5)
 
     # Build context from retrieved chunks
@@ -654,7 +658,8 @@ User question: {message}
 
 Please provide a helpful and accurate answer based on the policy context above."""
 
-    use_grounded_fallback = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    use_grounded_fallback = os.getenv(
+        "USE_MOCK_LLM", "false").lower() == "true"
 
     if use_grounded_fallback:
         answer = _generate_fallback_response(message, retrieved_chunks)
@@ -720,25 +725,23 @@ async def query_preindexed_policies(
     # Retrieve from local FAISS index
     retrieved_chunks = await retriever._retrieve_local(query, top_k=top_k)
 
-    # Fallback to rag-system preindexed bundle if legacy local retriever returns nothing
+    # Fallback to RAG preindexed bundle if legacy local retriever returns nothing
     if not retrieved_chunks:
-        retrieved_chunks = _search_rag_system_preindexed(query=query, top_k=top_k)
+        retrieved_chunks = _search_rag_preindexed(query=query, top_k=top_k)
 
     # Final fallback to lexical metadata search when semantic retrieval is unavailable.
     if not retrieved_chunks:
-        retrieved_chunks = _search_rag_metadata_lexical(query=query, top_k=top_k)
+        retrieved_chunks = _search_rag_metadata_lexical(
+            query=query, top_k=top_k)
 
     if not retrieved_chunks:
-        rag_root = _resolve_rag_system_root()
-        rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
-        rag_index_dir = Path(rag_index_dir_raw) if rag_index_dir_raw else ((rag_root / "indexes") if rag_root else None)
+        rag_index_dir = _resolve_rag_index_dir()
 
         return {
             "success": False,
             "error": "No pre-indexed policy data found. Please ensure FAISS index is available.",
-            "hint": "Run POST /api/v1/policies/preindexed/ingest to build/upload rag-system FAISS index, then retry.",
+            "hint": "Run POST /api/v1/policies/preindexed/ingest to build RAG FAISS index, then retry.",
             "diagnostics": {
-                "rag_system_root": str(rag_root) if rag_root else None,
                 "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
                 "rag_faiss_exists": bool(rag_index_dir and (rag_index_dir / "faiss.index").exists()),
                 "rag_metadata_exists": bool(rag_index_dir and (rag_index_dir / "metadata.parquet").exists()),
@@ -762,7 +765,8 @@ User query: {query}
 
 Please provide a comprehensive answer based on the policy clauses above."""
 
-    use_grounded_fallback = os.getenv("USE_MOCK_LLM", "false").lower() == "true"
+    use_grounded_fallback = os.getenv(
+        "USE_MOCK_LLM", "false").lower() == "true"
 
     if use_grounded_fallback:
         answer = _generate_fallback_response(query, retrieved_chunks)
@@ -801,39 +805,29 @@ Please provide a comprehensive answer based on the policy clauses above."""
 @router.post(
     "/preindexed/ingest",
     response_model=dict,
-    summary="Trigger rag-system preindexed ingestion"
+    summary="Trigger RAG preindexed ingestion"
 )
 async def ingest_preindexed_policies(
     request: PreindexedIngestRequest = Body(default=PreindexedIngestRequest()),
     current_user: User = Depends(get_current_user),
 ):
-    rag_root = _resolve_rag_system_root()
-    if rag_root is None:
+    """Trigger the RAG ingestion pipeline to build FAISS indexes from policy PDFs."""
+    try:
+        from app.rag.ingestion.rag_pdf_loader import run_ingestion_pipeline
+    except ImportError as e:
         raise HTTPException(
-            status_code=404,
+            status_code=500,
             detail={
-                "message": "rag-system directory was not found for ingestion trigger.",
-                "hint": "Set RAG_SYSTEM_ROOT env var or ensure repo contains rag-system/ alongside backend/.",
+                "message": "RAG ingestion module not available.",
+                "error": str(e),
+                "hint": "Ensure app.rag.ingestion.pdf_loader is properly installed.",
             },
         )
 
-    script = (
-        "import os\n"
-        "import sys\n"
-        "import json\n"
-        "from pathlib import Path\n"
-        "root = Path('.').resolve()\n"
-        "if str(root) not in sys.path:\n"
-        "    sys.path.insert(0, str(root))\n"
-        "from ingestion.pdf_loader import run_ingestion_pipeline\n"
-        f"indexed = run_ingestion_pipeline(root_dir=root, use_async={str(request.use_async)})\n"
-        "print(json.dumps({'indexed_clauses': indexed}))\n"
-    )
-
+    # Check for policy directories
     local_policy_dirs_raw = [
         os.getenv("RAG_POLICIES_DIR", "").strip(),
-        str(rag_root / "documents" / "policies"),
-        str(rag_root / "storage" / "policies"),
+        "storage/policies",
         "/app/storage/policies",
     ]
     local_policy_dirs: List[Path] = []
@@ -851,7 +845,8 @@ async def ingest_preindexed_policies(
     local_policy_diagnostics = []
     for directory in local_policy_dirs:
         try:
-            pdf_count = len(list(directory.glob("*.pdf"))) if directory.exists() and directory.is_dir() else 0
+            pdf_count = len(list(directory.glob("*.pdf"))
+                            ) if directory.exists() and directory.is_dir() else 0
         except Exception:
             pdf_count = 0
 
@@ -864,77 +859,42 @@ async def ingest_preindexed_policies(
             }
         )
 
-    def _run_ingest() -> subprocess.CompletedProcess:
-        env = os.environ.copy()
-        env.setdefault("RAG_INDEX_DIR", "/tmp/rag-system-indexes")
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        rag_pythonpath = str(rag_root)
-        if existing_pythonpath:
-            env["PYTHONPATH"] = f"{rag_pythonpath}:{existing_pythonpath}"
-        else:
-            env["PYTHONPATH"] = rag_pythonpath
-
-        return subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(rag_root),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=max(60, int(request.timeout_seconds)),
-            check=False,
-        )
-
     try:
-        completed = await asyncio.to_thread(_run_ingest)
+        # Determine the root directory for policy discovery
+        root_dir = Path.cwd()
+        if (Path("/app")).exists():
+            root_dir = Path("/app")
+
+        # Run ingestion using the consolidated RAG module
+        indexed_count = await asyncio.to_thread(
+            run_ingestion_pipeline,
+            root_dir=root_dir,
+            use_async=request.use_async
+        )
     except subprocess.TimeoutExpired as timeout_error:
         raise HTTPException(
             status_code=504,
             detail={
-                "message": "rag-system ingestion timed out.",
+                "message": "RAG ingestion timed out.",
                 "timeout_seconds": max(60, int(request.timeout_seconds)),
-                "stderr": (timeout_error.stderr or "")[-1200:],
+                "stderr": str(timeout_error)[-1200:],
             },
         )
-
-    if completed.returncode != 0:
-        rag_root_entries: List[str] = []
-        try:
-            rag_root_entries = sorted([entry.name for entry in rag_root.iterdir()])
-        except Exception:
-            rag_root_entries = []
-
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail={
-                "message": "rag-system ingestion failed.",
-                "return_code": completed.returncode,
-                "stdout": (completed.stdout or "")[-1200:],
-                "stderr": (completed.stderr or "")[-1200:],
+                "message": "RAG ingestion failed.",
+                "error": str(e),
                 "diagnostics": {
-                    "rag_system_root": str(rag_root),
-                    "rag_system_root_exists": rag_root.exists(),
-                    "ingestion_dir_exists": (rag_root / "ingestion").exists(),
-                    "storage_dir_exists": (rag_root / "storage").exists(),
-                    "storage_init_exists": (rag_root / "storage" / "__init__.py").exists(),
-                    "cwd_used": str(rag_root),
-                    "pythonpath_expected_prefix": str(rag_root),
-                    "rag_root_entries": rag_root_entries,
+                    "local_policy_diagnostics": local_policy_diagnostics,
                 },
             },
         )
 
-    output_lines = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
-    parsed_output: Dict[str, Any] = {}
-    if output_lines:
-        try:
-            parsed_output = json.loads(output_lines[-1])
-        except json.JSONDecodeError:
-            parsed_output = {"raw_output": output_lines[-1]}
-
     return {
         "success": True,
-        "rag_system_root": str(rag_root),
-        "indexed_clauses": int(parsed_output.get("indexed_clauses", 0)),
+        "indexed_clauses": int(indexed_count) if indexed_count else 0,
         "use_async": request.use_async,
         "local_policy_diagnostics": local_policy_diagnostics,
     }
@@ -970,9 +930,9 @@ async def get_preindexed_info(
 
     # Check multiple paths for clauses file
     clauses_paths = [
-        "data/all_clauses.json",         # Docker container path
-        "/app/data/all_clauses.json",     # Docker container absolute path
-        "../data/all_clauses.json",       # Relative from backend
+        "storage/clauses/all_clauses.json",         # Docker container path
+        "/app/storage/clauses/all_clauses.json",     # Docker container absolute path
+        "../storage/clauses/all_clauses.json",       # Relative from backend
     ]
     clauses_file = None
     for path in clauses_paths:
@@ -984,23 +944,23 @@ async def get_preindexed_info(
     alt_faiss_path = "backend/faiss_claimlens_combined_index"
     faiss_exists = os.path.exists(faiss_path) or os.path.exists(alt_faiss_path)
 
-    rag_root = _resolve_rag_system_root()
-    rag_index_dir_raw = os.getenv("RAG_INDEX_DIR", "").strip()
+    rag_index_dir = _resolve_rag_index_dir()
     rag_index_candidates: List[Path] = []
-    if rag_index_dir_raw:
-        rag_index_candidates.append(Path(rag_index_dir_raw))
-    if rag_root is not None:
-        rag_index_candidates.append(rag_root / "indexes")
-    rag_index_candidates.append(Path("/tmp/rag-system-indexes"))
+    if rag_index_dir is not None:
+        rag_index_candidates.append(rag_index_dir)
+    rag_index_candidates.extend([
+        Path("/app/storage/indexes"),
+        Path("/tmp/rag-indexes"),
+    ])
 
-    rag_index_dir: Optional[Path] = None
+    resolved_rag_index_dir: Optional[Path] = None
     rag_faiss_exists = False
     rag_metadata_exists = False
     for candidate in rag_index_candidates:
         faiss_candidate = candidate / "faiss.index"
         metadata_candidate = candidate / "metadata.parquet"
         if faiss_candidate.exists() or metadata_candidate.exists():
-            rag_index_dir = candidate
+            resolved_rag_index_dir = candidate
             rag_faiss_exists = faiss_candidate.exists()
             rag_metadata_exists = metadata_candidate.exists()
             break
@@ -1018,7 +978,7 @@ async def get_preindexed_info(
         "policies": [],
         "total_clauses": 0,
         "data_source": "none",
-        "rag_index_dir": str(rag_index_dir) if rag_index_dir else None,
+        "rag_index_dir": str(resolved_rag_index_dir) if resolved_rag_index_dir else None,
     }
 
     # Try to load clauses info
@@ -1042,9 +1002,9 @@ async def get_preindexed_info(
         except Exception as e:
             logger.error(f"Error loading clauses: {e}")
 
-    # Try to load rag-system metadata parquet for real pre-indexed count/policies.
-    if rag_index_dir and rag_metadata_exists:
-        metadata_file = rag_index_dir / "metadata.parquet"
+    # Try to load RAG metadata parquet for real pre-indexed count/policies.
+    if resolved_rag_index_dir and rag_metadata_exists:
+        metadata_file = resolved_rag_index_dir / "metadata.parquet"
         try:
             import pandas as pd
 
@@ -1106,7 +1066,8 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
             ),
         )
 
-    normalized_query = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
+    normalized_query = "".join(
+        ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in query)
     stopwords = {
         "does", "this", "that", "with", "from", "your", "have", "will", "about",
         "what", "when", "where", "which", "would", "could", "should", "there",
@@ -1140,14 +1101,17 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
     for intent in detected_intents:
         expanded_query_terms.update(intent_keyword_map[intent])
 
-    is_boolean_question = normalized_query.strip().startswith(("does", "are", "is", "can", "will", "if"))
+    is_boolean_question = normalized_query.strip().startswith(
+        ("does", "are", "is", "can", "will", "if"))
 
     scored_chunks = []
     for chunk in chunks:
-        content = (chunk.get("content") or chunk.get("chunk_text") or "").strip()
+        content = (chunk.get("content") or chunk.get(
+            "chunk_text") or "").strip()
         if not content:
             continue
-        lowered = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in content)
+        lowered = "".join(ch.lower() if ch.isalnum()
+                          or ch.isspace() else " " for ch in content)
 
         phrase_hit = 2 if query_phrase and query_phrase in lowered else 0
         term_hits = sum(1 for term in expanded_query_terms if term in lowered)
@@ -1162,7 +1126,8 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
         scored_chunks.append((score, term_hits + intent_hits, content))
 
     scored_chunks.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    matched_contents = [content for score, _, content in scored_chunks if score > 0][:3]
+    matched_contents = [content for score, _,
+                        content in scored_chunks if score > 0][:3]
 
     if not matched_contents:
         fallback_clauses = [
@@ -1194,15 +1159,18 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
         )
         detected_amounts = []
         for content in matched_contents:
-            detected_amounts.extend([m.group(0) for m in amount_pattern.finditer(content)])
+            detected_amounts.extend([m.group(0)
+                                    for m in amount_pattern.finditer(content)])
 
         if detected_amounts:
             unique_amounts = []
             seen_amounts = set()
             for amount in detected_amounts:
                 normalized_amount = " ".join(amount.split()).strip(" ,;:")
-                normalized_amount = re.sub(r"^(?:inr|rs\.?)\s*", "Rs. ", normalized_amount, flags=re.IGNORECASE)
-                normalized_amount = re.sub(r"\s+", " ", normalized_amount).strip()
+                normalized_amount = re.sub(
+                    r"^(?:inr|rs\.?)\s*", "Rs. ", normalized_amount, flags=re.IGNORECASE)
+                normalized_amount = re.sub(
+                    r"\s+", " ", normalized_amount).strip()
                 dedupe_key = normalized_amount.lower()
                 if not normalized_amount or dedupe_key in seen_amounts:
                     continue
@@ -1231,11 +1199,15 @@ def _generate_fallback_response(query: str, chunks: List[dict]) -> str:
             plain_language_interpretation=plain_language_interpretation,
         )
 
-    negative_signals = ["not covered", "excluded", "exclusion", "not payable", "not admissible"]
-    positive_signals = ["covered", "payable", "eligible", "reimburs", "cashless"]
+    negative_signals = ["not covered", "excluded",
+                        "exclusion", "not payable", "not admissible"]
+    positive_signals = ["covered", "payable",
+                        "eligible", "reimburs", "cashless"]
 
-    negative_hits = sum(1 for token in negative_signals if token in matched_text)
-    positive_hits = sum(1 for token in positive_signals if token in matched_text)
+    negative_hits = sum(
+        1 for token in negative_signals if token in matched_text)
+    positive_hits = sum(
+        1 for token in positive_signals if token in matched_text)
 
     if negative_hits > positive_hits:
         if is_boolean_question:
