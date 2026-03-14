@@ -13,7 +13,7 @@ def export_clauses_to_json(output_path="all_clauses.json"):
     print("Loading documents...")
 
     docs_icici = load_policy_documents(
-        pdf_path="data/icici_complete_health.pdf",
+        pdf_path="data/policy_icici_complete_health.pdf",
         insurer="ICICI Lombard",
         policy_name="Complete Health Insurance",
         uin="ICIHLIP25035V082425",
@@ -21,7 +21,7 @@ def export_clauses_to_json(output_path="all_clauses.json"):
     )
 
     docs_niva = load_policy_documents(
-        pdf_path="data/niva_rise.pdf",
+        pdf_path="data/policy_niva_rise.pdf",
         insurer="Niva Bupa",
         policy_name="Rise Policy",
         uin="NIVHLIPXXXX",
@@ -29,7 +29,7 @@ def export_clauses_to_json(output_path="all_clauses.json"):
     )
 
     docs_hdfc = load_policy_documents(
-        pdf_path="data/HDFC optima-secure-revision-pw.pdf",
+        pdf_path="data/policy_hdfc_optima.pdf",
         insurer="HDFC",
         policy_name="Optima",
         uin="NIVHLIPXXXX",

@@ -1,5 +1,5 @@
 import re
-from typing import List
+from typing import List, Dict, Any
 from collections import defaultdict
 from langchain_core.documents import Document
 
@@ -39,7 +39,7 @@ def health_policy_splitter(policy_documents: List[Document]) -> List[Document]:
     current_identifier = None
     current_lines = []
     current_page = None
-    current_metadata = None
+    current_metadata: Dict[str, Any] = {}
 
     def save_chunk():
         nonlocal current_identifier, current_lines

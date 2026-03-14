@@ -12,3 +12,4 @@ backend/rag_core_snapshot
 .venv
 venv
 .vscode
+.pyre_configuration
